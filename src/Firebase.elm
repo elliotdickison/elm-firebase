@@ -1,8 +1,8 @@
-effect module Firebase where { command = MyCmd } exposing (App, initializeApp, generateInt)
+effect module Firebase where { command = MyCmd } exposing (Error(..), initialize, set)
 
---import Firebase.Reference as Reference exposing (Reference)
-
-import Native.Firebase
+import Firebase.App as App exposing (App)
+import Firebase.Database as Database
+import Json.Encode as Json
 import Task exposing (Task)
 import Dict exposing (Dict)
 
@@ -10,21 +10,16 @@ import Dict exposing (Dict)
 -- Types
 
 
-type App
-    = App
-
-
-type alias Config =
-    { apiKey : String
-    , authDomain : String
-    , databaseUrl : String
-    , storageBucket : String
-    , messagingSenderId : String
-    }
+type Error
+    = AppInitializeError
+    | DatabasePermissionError
+    | DatabaseConfigError String
+    | DatabaseOtherError String
 
 
 type MyCmd msg
-    = GenerateInt (Int -> msg)
+    = Set Database.Path (Error -> msg) Json.Value
+    | Initialize App.Config
 
 
 type alias SubsDict msg =
@@ -32,7 +27,7 @@ type alias SubsDict msg =
 
 
 type alias State msg =
-    { int : Int
+    { app : Maybe App
     , subs : SubsDict msg
     }
 
@@ -45,14 +40,31 @@ type Msg
 -- API
 
 
-initializeApp : Config -> App
-initializeApp config =
-    Native.Firebase.initializeApp config
+initialize : App.Config -> Cmd msg
+initialize config =
+    command (Initialize config)
 
 
-generateInt : (Int -> msg) -> Cmd msg
-generateInt msg =
-    command (GenerateInt msg)
+set : Database.Path -> (Error -> msg) -> Json.Value -> Cmd msg
+set path errorToMsg value =
+    command (Set path errorToMsg value)
+
+
+
+-- Database
+
+
+convertDatabaseError : Database.Error -> Error
+convertDatabaseError error =
+    case error of
+        Database.PermissionError ->
+            DatabasePermissionError
+
+        Database.ConfigError message ->
+            DatabaseConfigError message
+
+        Database.OtherError message ->
+            DatabaseOtherError message
 
 
 
@@ -61,12 +73,17 @@ generateInt msg =
 
 init : Task Never (State msg)
 init =
-    Task.succeed (State 0 Dict.empty)
+    Task.succeed (State Nothing Dict.empty)
 
 
 cmdMap : (a -> b) -> MyCmd a -> MyCmd b
-cmdMap f (GenerateInt msg) =
-    GenerateInt (msg >> f)
+cmdMap f cmd =
+    case cmd of
+        Set path errorToMsg value ->
+            Set path (errorToMsg >> f) value
+
+        Initialize config ->
+            Initialize config
 
 
 onEffects : Platform.Router msg Msg -> List (MyCmd msg) -> State msg -> Task Never (State msg)
@@ -75,9 +92,21 @@ onEffects router cmdList state =
         [] ->
             Task.succeed state
 
-        (GenerateInt msg) :: cmdListTail ->
-            Platform.sendToApp router (msg state.int)
-                |> Task.andThen (\_ -> Task.succeed { state | int = state.int + 1 })
+        (Set path errorToMsg value) :: cmdListTail ->
+            case state.app of
+                Just app ->
+                    Database.set app path value
+                        |> Task.mapError convertDatabaseError
+                        |> Task.onError (\error -> Platform.sendToApp router (errorToMsg error))
+                        |> Task.andThen (\_ -> onEffects router cmdListTail state)
+
+                Nothing ->
+                    Platform.sendToApp router (errorToMsg AppInitializeError)
+                        |> Task.andThen (\_ -> onEffects router cmdListTail state)
+
+        (Initialize config) :: cmdListTail ->
+            App.initialize config
+                |> Task.andThen (\app -> onEffects router cmdListTail { state | app = Just app })
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)

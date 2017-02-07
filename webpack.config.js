@@ -28,7 +28,7 @@ module.exports = {
         test: /\.elm$/,
         exclude: [/elm-stuff/, /node_modules/],
         loader: production
-          ? "babel-loader?presets=es2015!elm-webpack-loader"
+          ? "babel-loader?presets=es2017!elm-webpack-loader"
           : "elm-hot-loader!elm-webpack-loader",
       },
     ],
