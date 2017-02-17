@@ -1,6 +1,6 @@
-module Firebase.Database exposing (Path, Error(..), set)
+module Firebase.Database exposing (Path, Error(..), set, get)
 
-import Json.Encode as Json
+import Json.Encode as Encode
 import Task exposing (Task)
 import Firebase.App exposing (App)
 import Native.Firebase
@@ -16,6 +16,11 @@ type Error
     | OtherError String
 
 
-set : App -> Path -> Json.Value -> Task Error ()
+set : App -> Path -> Encode.Value -> Task Error ()
 set =
     Native.Firebase.set
+
+
+get : App -> Path -> Task Error Encode.Value
+get =
+    Native.Firebase.get

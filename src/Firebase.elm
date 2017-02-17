@@ -1,8 +1,8 @@
-effect module Firebase where { command = MyCmd } exposing (Error(..), initialize, set)
+effect module Firebase where { command = MyCmd } exposing (Error(..), initialize, set, get)
 
 import Firebase.App as App exposing (App)
 import Firebase.Database as Database
-import Json.Encode as Json
+import Json.Encode as Encode
 import Task exposing (Task)
 import Dict exposing (Dict)
 
@@ -18,7 +18,8 @@ type Error
 
 
 type MyCmd msg
-    = Set Database.Path (Error -> msg) Json.Value
+    = Set Database.Path (Error -> msg) Encode.Value
+    | Get Database.Path (Result Error Encode.Value -> msg)
     | Initialize App.Config
 
 
@@ -45,17 +46,22 @@ initialize config =
     command (Initialize config)
 
 
-set : Database.Path -> (Error -> msg) -> Json.Value -> Cmd msg
+set : Database.Path -> (Error -> msg) -> Encode.Value -> Cmd msg
 set path errorToMsg value =
     command (Set path errorToMsg value)
+
+
+get : Database.Path -> (Result Error Encode.Value -> msg) -> Cmd msg
+get path resultToMsg =
+    command (Get path resultToMsg)
 
 
 
 -- Database
 
 
-convertDatabaseError : Database.Error -> Error
-convertDatabaseError error =
+mapDatabaseError : Database.Error -> Error
+mapDatabaseError error =
     case error of
         Database.PermissionError ->
             DatabasePermissionError
@@ -82,6 +88,9 @@ cmdMap f cmd =
         Set path errorToMsg value ->
             Set path (errorToMsg >> f) value
 
+        Get path resultToMsg ->
+            Get path (resultToMsg >> f)
+
         Initialize config ->
             Initialize config
 
@@ -96,12 +105,25 @@ onEffects router cmdList state =
             case state.app of
                 Just app ->
                     Database.set app path value
-                        |> Task.mapError convertDatabaseError
+                        |> Task.mapError mapDatabaseError
                         |> Task.onError (\error -> Platform.sendToApp router (errorToMsg error))
                         |> Task.andThen (\_ -> onEffects router cmdListTail state)
 
                 Nothing ->
                     Platform.sendToApp router (errorToMsg AppInitializeError)
+                        |> Task.andThen (\_ -> onEffects router cmdListTail state)
+
+        (Get path resultToMsg) :: cmdListTail ->
+            case state.app of
+                Just app ->
+                    Database.get app path
+                        |> Task.mapError mapDatabaseError
+                        |> Task.andThen (\value -> Platform.sendToApp router (resultToMsg (Ok value)))
+                        |> Task.onError (\error -> Platform.sendToApp router (resultToMsg (Err error)))
+                        |> Task.andThen (\_ -> onEffects router cmdListTail state)
+
+                Nothing ->
+                    Platform.sendToApp router (resultToMsg (Err AppInitializeError))
                         |> Task.andThen (\_ -> onEffects router cmdListTail state)
 
         (Initialize config) :: cmdListTail ->
