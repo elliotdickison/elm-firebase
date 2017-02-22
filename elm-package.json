@@ -1,6 +1,6 @@
 {
     "version": "0.0.1",
-    "summary": "Firebase bindings for Elm",
+    "summary": "An Elm client for Firebase",
     "repository": "https://github.com/elliotdickison/elm-firebase.git",
     "license": "WTFPL",
     "native-modules": true,

@@ -6,9 +6,24 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
   const mapDatabaseError = error => {
     switch (error.code) {
     case "PERMISSION_DENIED":
-      return { ctor: "PermissionError" }
+      return { ctor: "PermissionDenied" }
     default:
       return { ctor: "OtherError", _0: error.code }
+    }
+  }
+
+  const mapEvent = event => {
+    switch(event.ctor) {
+    case "Change":
+      return "value"
+    case "ChildAdd":
+      return "child_added"
+    case "ChildChange":
+      return "child_changed"
+    case "ChildRemove":
+      return "child_removed"
+    case "ChildMove":
+      return "child_moved"
     }
   }
 
@@ -40,6 +55,18 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
       } catch (error) {
         callback(scheduler.fail(mapDatabaseError(error)))
       }
+    })
+
+  const on = (app, path, event) =>
+    scheduler.nativeBinding(callback => {
+      // TODO: Cancel callback + error handling
+      app.database().ref(path).on(mapEvent(event), (snapshot, prevKey) => {
+        callback(schedule.succeed({
+          ctor: "_Tuple2",
+          _0: snapshot.val(),
+          _1: prevKey,
+        }))
+      })
     })
 
   return {

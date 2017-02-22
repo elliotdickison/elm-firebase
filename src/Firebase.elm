@@ -11,9 +11,8 @@ import Dict exposing (Dict)
 
 
 type Error
-    = AppInitializeError
-    | DatabasePermissionError
-    | DatabaseConfigError String
+    = NotInitialized
+    | DatabasePermissionDenied
     | DatabaseOtherError String
 
 
@@ -63,11 +62,8 @@ get path resultToMsg =
 mapDatabaseError : Database.Error -> Error
 mapDatabaseError error =
     case error of
-        Database.PermissionError ->
-            DatabasePermissionError
-
-        Database.ConfigError message ->
-            DatabaseConfigError message
+        Database.PermissionDenied ->
+            DatabasePermissionDenied
 
         Database.OtherError message ->
             DatabaseOtherError message
@@ -110,7 +106,7 @@ onEffects router cmdList state =
                         |> Task.andThen (\_ -> onEffects router cmdListTail state)
 
                 Nothing ->
-                    Platform.sendToApp router (errorToMsg AppInitializeError)
+                    Platform.sendToApp router (errorToMsg NotInitialized)
                         |> Task.andThen (\_ -> onEffects router cmdListTail state)
 
         (Get path resultToMsg) :: cmdListTail ->
@@ -123,7 +119,7 @@ onEffects router cmdList state =
                         |> Task.andThen (\_ -> onEffects router cmdListTail state)
 
                 Nothing ->
-                    Platform.sendToApp router (resultToMsg (Err AppInitializeError))
+                    Platform.sendToApp router (resultToMsg (Err NotInitialized))
                         |> Task.andThen (\_ -> onEffects router cmdListTail state)
 
         (Initialize config) :: cmdListTail ->

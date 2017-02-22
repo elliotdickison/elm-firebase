@@ -48,8 +48,8 @@ init =
 view : Model -> Html Msg
 view model =
     div []
-        [ div [] [ text "error", model.error |> Maybe.withDefault "" |> text ]
-        , div [] [ text "user", model.user |> Maybe.withDefault "" |> text ]
+        [ div [] [ text "error: ", model.error |> Maybe.withDefault "" |> text ]
+        , div [] [ text "user: ", model.user |> Maybe.withDefault "" |> text ]
         , button [ onClick RequestSet ] [ text "Set!" ]
         , button [ onClick RequestGet ] [ text "Get!" ]
         ]
@@ -66,21 +66,21 @@ update msg model =
             model ! [ Firebase.get "users/2" RequestGetComplete ]
 
         RequestGetComplete result ->
-            case result of
-                Ok value ->
-                    case Decode.decodeValue Decode.string value of
-                        Ok string ->
-                            { model | error = Nothing, user = Just string } ! []
+            let
+                decoded =
+                    result
+                        |> Result.mapError toString
+                        |> Result.andThen (Decode.decodeValue Decode.string)
+            in
+                case decoded of
+                    Ok value ->
+                        { model | error = Nothing, user = Just value } ! []
 
-                        Err error ->
-                            { model | error = Just error, user = Nothing } ! []
-
-                Err error ->
-                    { model | error = Just (toString error), user = Nothing } ! []
+                    Err error ->
+                        { model | error = Just error, user = Nothing } ! []
 
         SetFailed error ->
-            { model | error = Just (toString error) }
-                ! []
+            { model | error = Just (toString error) } ! []
 
 
 subscriptions : Model -> Sub Msg

@@ -11,9 +11,16 @@ type alias Path =
 
 
 type Error
-    = PermissionError
-    | ConfigError String
+    = PermissionDenied
     | OtherError String
+
+
+type Event
+    = Change
+    | ChildAdd
+    | ChildChange
+    | ChildRemove
+    | ChildMove
 
 
 set : App -> Path -> Encode.Value -> Task Error ()
@@ -24,3 +31,8 @@ set =
 get : App -> Path -> Task Error Encode.Value
 get =
     Native.Firebase.get
+
+
+on : App -> Path -> Event -> Task Never ()
+on =
+    Native.Firebase.on
