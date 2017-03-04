@@ -1,4 +1,4 @@
-module Firebase.Database exposing (Path, Error(..), set, get)
+module Firebase.Database exposing (Path, Listener, Event(..), Error(..), set, get, listen, stop)
 
 import Json.Encode as Encode
 import Task exposing (Task)
@@ -10,9 +10,8 @@ type alias Path =
     String
 
 
-type Error
-    = PermissionDenied
-    | OtherError String
+type Listener
+    = Listener
 
 
 type Event
@@ -21,6 +20,15 @@ type Event
     | ChildChange
     | ChildRemove
     | ChildMove
+
+
+
+-- TODO: Get rid of "OtherError" and replace with explicit values
+
+
+type Error
+    = PermissionDenied
+    | OtherError String
 
 
 set : App -> Path -> Encode.Value -> Task Error ()
@@ -33,6 +41,11 @@ get =
     Native.Firebase.get
 
 
-on : App -> Path -> Event -> Task Never ()
-on =
-    Native.Firebase.on
+listen : App -> Path -> Event -> (Encode.Value -> Maybe String -> Task Never ()) -> Task Never Listener
+listen =
+    Native.Firebase.listen
+
+
+stop : Listener -> Task Never ()
+stop =
+    Native.Firebase.stop

@@ -16,8 +16,9 @@ type alias Model =
 type Msg
     = RequestSet
     | RequestGet
-    | RequestGetComplete (Result Firebase.Error Encode.Value)
+    | GetComplete (Result Firebase.Error Encode.Value)
     | SetFailed Firebase.Error
+    | OnChange Encode.Value
 
 
 main : Program Never Model Msg
@@ -60,12 +61,15 @@ update msg model =
     case msg of
         RequestSet ->
             { model | error = Nothing }
-                ! [ Firebase.set "users/1" SetFailed (Encode.string "bob") ]
+                ! [ Firebase.set "user" SetFailed (Encode.string "bob4") ]
+
+        SetFailed error ->
+            { model | error = Just (toString error) } ! []
 
         RequestGet ->
-            model ! [ Firebase.get "users/2" RequestGetComplete ]
+            model ! [ Firebase.get "user" GetComplete ]
 
-        RequestGetComplete result ->
+        GetComplete result ->
             let
                 decoded =
                     result
@@ -79,10 +83,15 @@ update msg model =
                     Err error ->
                         { model | error = Just error, user = Nothing } ! []
 
-        SetFailed error ->
-            { model | error = Just (toString error) } ! []
+        OnChange data ->
+            case Decode.decodeValue Decode.string data of
+                Ok string ->
+                    { model | error = Nothing, user = Just string } ! []
+
+                Err error ->
+                    { model | error = Just error, user = Nothing } ! []
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.none
+    Firebase.changes "user" OnChange

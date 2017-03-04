@@ -2,6 +2,8 @@
 const _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
   const scheduler = _elm_lang$core$Native_Scheduler
+  const Nothing = _elm_lang$core$Maybe$Nothing
+  const Just = _elm_lang$core$Maybe$Just
 
   const mapDatabaseError = error => {
     switch (error.code) {
@@ -57,21 +59,34 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
       }
     })
 
-  const on = (app, path, event) =>
+  const listen = (app, path, event, handler, cb) =>
     scheduler.nativeBinding(callback => {
-      // TODO: Cancel callback + error handling
-      app.database().ref(path).on(mapEvent(event), (snapshot, prevKey) => {
-        callback(schedule.succeed({
-          ctor: "_Tuple2",
-          _0: snapshot.val(),
-          _1: prevKey,
-        }))
-      })
+      const callHandler = (snapshot, prevKey) => {
+        const maybePrevKey = prevKey ? Just(prevKey) : Nothing
+        scheduler.rawSpawn(A2(handler, snapshot.val(), maybePrevKey))
+      }
+      const ref = app.database().ref(path)
+      const mappedEvent = mapEvent(event)
+      const stop = () => ref.off(mappedEvent, callHandler)
+      const listener = { stop }
+      ref.on(mappedEvent, callHandler)
+      callback(scheduler.succeed(listener))
+      return () => {
+        if (listener && listener.stop) listener.stop()
+      }
+    })
+
+  const stop = listener =>
+    scheduler.nativeBinding(callback => {
+      listener.stop()
+      callback(schedule.succeed())
     })
 
   return {
     initialize,
     set: F3(set),
     get: F2(get),
+    listen: F4(listen),
+    stop,
   }
 }())
