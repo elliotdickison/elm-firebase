@@ -5,13 +5,13 @@ import Html.Events exposing (onClick)
 import Json.Encode as Encode
 import Json.Decode as Decode
 import Firebase
-import Firebase.App
+import Firebase.Database as Database
 
 
 type alias Model =
     { error : Maybe String
     , user : Maybe String
-    , config : Firebase.App.Config
+    , config : Firebase.Config
     }
 
 
@@ -64,13 +64,13 @@ update msg model =
     case msg of
         RequestSet ->
             { model | error = Nothing }
-                ! [ Firebase.set model.config "user" SetFailed (Encode.string "bob4") ]
+                ! [ Database.set model.config "user" SetFailed (Encode.string "bob4") ]
 
         SetFailed error ->
             { model | error = Just (toString error) } ! []
 
         RequestGet ->
-            model ! [ Firebase.get model.config "user" GetComplete ]
+            model ! [ Database.get model.config "user" GetComplete ]
 
         GetComplete result ->
             let
@@ -97,4 +97,4 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Firebase.changes model.config "user" OnChange
+    Database.changes model.config "user" OnChange
