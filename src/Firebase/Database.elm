@@ -2,7 +2,7 @@ module Firebase.Database exposing (Path, Listener, Event(..), Error(..), set, ge
 
 import Json.Encode as Encode
 import Task exposing (Task)
-import Firebase.App exposing (App)
+import Firebase.App exposing (Config)
 import Native.Firebase
 
 
@@ -31,17 +31,17 @@ type Error
     | OtherError String
 
 
-set : App -> Path -> Encode.Value -> Task Error ()
+set : Config -> Path -> Encode.Value -> Task Error ()
 set =
     Native.Firebase.set
 
 
-get : App -> Path -> Task Error Encode.Value
+get : Config -> Path -> Task Error Encode.Value
 get =
     Native.Firebase.get
 
 
-listen : App -> Path -> Event -> (Encode.Value -> Maybe String -> Task Never ()) -> Task Never Listener
+listen : Config -> Path -> Event -> (Encode.Value -> Maybe String -> Task Never ()) -> Task Never Listener
 listen =
     Native.Firebase.listen
 

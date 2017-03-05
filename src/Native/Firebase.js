@@ -5,6 +5,21 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
   const Nothing = _elm_lang$core$Maybe$Nothing
   const Just = _elm_lang$core$Maybe$Just
 
+  const getApp = (function() {
+    const apps = {}
+    return config => {
+      if (!apps[config.name]) {
+        apps[config.name] = window.firebase.initializeApp(Object.assign({}, config, {
+          databaseURL: config.databaseUrl, // Different naming conventions...
+        }), config.name)
+      }
+      return apps[config.name]
+    }
+  }())
+
+  const getDatabase = config =>
+    getApp(config).database()
+
   const mapDatabaseError = error => {
     switch (error.code) {
     case "PERMISSION_DENIED":
@@ -29,18 +44,10 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
     }
   }
 
-  const initialize = config =>
-    scheduler.nativeBinding(callback => {
-      const app = window.firebase.initializeApp(Object.assign({}, config, {
-        databaseURL: config.databaseUrl, // Different naming conventions...
-      }))
-      callback(scheduler.succeed(app))
-    })
-
-  const set = (app, path, data) =>
+  const set = (config, path, data) =>
     scheduler.nativeBinding(callback => {
       try {
-        app.database().ref(path).set(data)
+        getDatabase(config).ref(path).set(data)
           .then(() => callback(scheduler.succeed()))
           .catch(error => callback(scheduler.fail(mapDatabaseError(error))))
       } catch (error) {
@@ -48,10 +55,10 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
       }
     })
 
-  const get = (app, path) =>
+  const get = (config, path) =>
     scheduler.nativeBinding(callback => {
       try {
-        app.database().ref(path).once("value")
+        getDatabase(config).ref(path).once("value")
           .then(snapshot => callback(scheduler.succeed(snapshot.val())))
           .catch(error => callback(scheduler.fail(mapDatabaseError(error))))
       } catch (error) {
@@ -59,13 +66,13 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
       }
     })
 
-  const listen = (app, path, event, handler, cb) =>
+  const listen = (config, path, event, handler, cb) =>
     scheduler.nativeBinding(callback => {
       const callHandler = (snapshot, prevKey) => {
         const maybePrevKey = prevKey ? Just(prevKey) : Nothing
         scheduler.rawSpawn(A2(handler, snapshot.val(), maybePrevKey))
       }
-      const ref = app.database().ref(path)
+      const ref = getDatabase(config).ref(path)
       const mappedEvent = mapEvent(event)
       const stop = () => ref.off(mappedEvent, callHandler)
       const listener = { stop }
@@ -83,7 +90,6 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
     })
 
   return {
-    initialize,
     set: F3(set),
     get: F2(get),
     listen: F4(listen),

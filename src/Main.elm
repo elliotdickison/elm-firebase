@@ -5,11 +5,13 @@ import Html.Events exposing (onClick)
 import Json.Encode as Encode
 import Json.Decode as Decode
 import Firebase
+import Firebase.App
 
 
 type alias Model =
     { error : Maybe String
     , user : Maybe String
+    , config : Firebase.App.Config
     }
 
 
@@ -35,15 +37,16 @@ init : ( Model, Cmd Msg )
 init =
     { error = Nothing
     , user = Nothing
+    , config =
+        { name = "example-app"
+        , apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
+        , authDomain = "elm-firebase.firebaseapp.com"
+        , databaseUrl = "https://elm-firebase.firebaseio.com"
+        , storageBucket = "elm-firebase.appspot.com"
+        , messagingSenderId = "488262915403"
+        }
     }
-        ! [ Firebase.initialize
-                { apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
-                , authDomain = "elm-firebase.firebaseapp.com"
-                , databaseUrl = "https://elm-firebase.firebaseio.com"
-                , storageBucket = "elm-firebase.appspot.com"
-                , messagingSenderId = "488262915403"
-                }
-          ]
+        ! []
 
 
 view : Model -> Html Msg
@@ -61,13 +64,13 @@ update msg model =
     case msg of
         RequestSet ->
             { model | error = Nothing }
-                ! [ Firebase.set "user" SetFailed (Encode.string "bob4") ]
+                ! [ Firebase.set model.config "user" SetFailed (Encode.string "bob4") ]
 
         SetFailed error ->
             { model | error = Just (toString error) } ! []
 
         RequestGet ->
-            model ! [ Firebase.get "user" GetComplete ]
+            model ! [ Firebase.get model.config "user" GetComplete ]
 
         GetComplete result ->
             let
@@ -94,4 +97,4 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Firebase.changes "user" OnChange
+    Firebase.changes model.config "user" OnChange

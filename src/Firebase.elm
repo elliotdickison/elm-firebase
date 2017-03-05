@@ -2,13 +2,12 @@ effect module Firebase
     where { command = MyCmd, subscription = MySub }
     exposing
         ( Error(..)
-        , initialize
         , set
         , get
         , changes
         )
 
-import Firebase.App as App exposing (App)
+import Firebase.App as App
 import Firebase.Database as Database
 import Json.Encode as Encode
 import Task exposing (Task)
@@ -18,26 +17,23 @@ import Task exposing (Task)
 
 
 type Error
-    = NotInitialized
-    | DatabasePermissionDenied
+    = DatabasePermissionDenied
     | DatabaseOtherError String
 
 
 type MyCmd msg
-    = Set Database.Path (Error -> msg) Encode.Value
-    | Get Database.Path (Result Error Encode.Value -> msg)
-    | Initialize App.Config
+    = Set App.Config Database.Path (Error -> msg) Encode.Value
+    | Get App.Config Database.Path (Result Error Encode.Value -> msg)
 
 
 type MySub msg
-    = MySubValue Database.Path Database.Event (Encode.Value -> msg)
-    | MySubValueAndPrevKey Database.Path Database.Event (Encode.Value (Maybe String) -> msg)
+    = MySubValue App.Config Database.Path Database.Event (Encode.Value -> msg)
+    | MySubValueAndPrevKey App.Config Database.Path Database.Event (Encode.Value (Maybe String) -> msg)
 
 
 type alias State msg =
-    { app : Maybe App
-    , listeners : List ( Database.Path, Database.Event, Database.Listener )
-    , subs : List ( Database.Path, Database.Event, Encode.Value -> msg )
+    { listeners : List Database.Listener
+    , subs : List (MySub msg)
     , listenAttempted : Bool
     , latestValue : Maybe Encode.Value
     }
@@ -51,29 +47,24 @@ type Msg
 -- API
 
 
-initialize : App.Config -> Cmd msg
-initialize config =
-    command (Initialize config)
+set : App.Config -> Database.Path -> (Error -> msg) -> Encode.Value -> Cmd msg
+set config path toMsg value =
+    command (Set config path toMsg value)
 
 
-set : Database.Path -> (Error -> msg) -> Encode.Value -> Cmd msg
-set path toMsg value =
-    command (Set path toMsg value)
+get : App.Config -> Database.Path -> (Result Error Encode.Value -> msg) -> Cmd msg
+get config path toMsg =
+    command (Get config path toMsg)
 
 
-get : Database.Path -> (Result Error Encode.Value -> msg) -> Cmd msg
-get path toMsg =
-    command (Get path toMsg)
+changes : App.Config -> Database.Path -> (Encode.Value -> msg) -> Sub msg
+changes config path toMsg =
+    subscription (MySubValue config path Database.Change toMsg)
 
 
-changes : Database.Path -> (Encode.Value -> msg) -> Sub msg
-changes path toMsg =
-    subscription (MySubValue path Database.Change toMsg)
-
-
-newChildren : Database.Path -> (Encode.Value (Maybe String) -> msg) -> Sub msg
-newChildren path toMsg =
-    subscription (MySubValueAndPrevKey path Database.ChildAdd toMsg)
+newChildren : App.Config -> Database.Path -> (Encode.Value (Maybe String) -> msg) -> Sub msg
+newChildren config path toMsg =
+    subscription (MySubValueAndPrevKey config path Database.ChildAdd toMsg)
 
 
 
@@ -90,13 +81,13 @@ mapDatabaseError error =
             DatabaseOtherError message
 
 
-listen : Platform.Router msg Msg -> App -> Database.Path -> Database.Event -> Task Never Database.Listener
-listen router app path event =
+listen : Platform.Router msg Msg -> App.Config -> Database.Path -> Database.Event -> Task Never Database.Listener
+listen router config path event =
     let
         handler value prevKey =
             Platform.sendToSelf router (DataReceived value prevKey)
     in
-        Database.listen app path event handler
+        Database.listen config path event handler
 
 
 
@@ -106,8 +97,7 @@ listen router app path event =
 init : Task Never (State msg)
 init =
     Task.succeed
-        { app = Nothing
-        , listeners = []
+        { listeners = []
         , subs = []
         , listenAttempted = False
         , latestValue = Nothing
@@ -117,24 +107,21 @@ init =
 cmdMap : (a -> b) -> MyCmd a -> MyCmd b
 cmdMap f cmd =
     case cmd of
-        Set path toMsg value ->
-            Set path (toMsg >> f) value
+        Set config path toMsg value ->
+            Set config path (toMsg >> f) value
 
-        Get path toMsg ->
-            Get path (toMsg >> f)
-
-        Initialize config ->
-            Initialize config
+        Get config path toMsg ->
+            Get config path (toMsg >> f)
 
 
 subMap : (a -> b) -> MySub a -> MySub b
 subMap f sub =
     case sub of
-        MySubValue path event toMsg ->
-            MySubValue path event (toMsg >> f)
+        MySubValue config path event toMsg ->
+            MySubValue config path event (toMsg >> f)
 
-        MySubValueAndPrevKey path event toMsg ->
-            MySubValueAndPrevKey path event (toMsg >> f)
+        MySubValueAndPrevKey config path event toMsg ->
+            MySubValueAndPrevKey config path event (toMsg >> f)
 
 
 onEffects :
@@ -150,42 +137,25 @@ onEffects router cmdList subList state =
     in
         case cmdList of
             [] ->
-                case ( state.listenAttempted, state.app ) of
-                    ( False, Just app ) ->
-                        listen router app "user" Database.Change
-                            |> Task.andThen (\pid -> onEffects router cmdList subList { state | listenAttempted = True })
+                --case ( state.listenAttempted, state.app ) of
+                --    ( False, Just app ) ->
+                --        listen router app "user" Database.Change
+                --            |> Task.andThen (\pid -> onEffects router cmdList subList { state | listenAttempted = True })
+                --    _ ->
+                Task.succeed state
 
-                    _ ->
-                        Task.succeed state
+            (Set config path toMsg value) :: cmdListTail ->
+                Database.set config path value
+                    |> Task.mapError mapDatabaseError
+                    |> Task.onError (\error -> Platform.sendToApp router (toMsg error))
+                    |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
 
-            (Set path toMsg value) :: cmdListTail ->
-                case state.app of
-                    Just app ->
-                        Database.set app path value
-                            |> Task.mapError mapDatabaseError
-                            |> Task.onError (\error -> Platform.sendToApp router (toMsg error))
-                            |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
-
-                    Nothing ->
-                        Platform.sendToApp router (toMsg NotInitialized)
-                            |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
-
-            (Get path toMsg) :: cmdListTail ->
-                case state.app of
-                    Just app ->
-                        Database.get app path
-                            |> Task.mapError mapDatabaseError
-                            |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
-                            |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
-                            |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
-
-                    Nothing ->
-                        Platform.sendToApp router (toMsg (Err NotInitialized))
-                            |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
-
-            (Initialize config) :: cmdListTail ->
-                App.initialize config
-                    |> Task.andThen (\app -> onEffects router cmdListTail subList { state | app = Just app })
+            (Get config path toMsg) :: cmdListTail ->
+                Database.get config path
+                    |> Task.mapError mapDatabaseError
+                    |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
+                    |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
+                    |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
