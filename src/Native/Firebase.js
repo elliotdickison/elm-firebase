@@ -1,6 +1,8 @@
 /* eslint-disable no-unused-vars, no-undef */
 const _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
+  // TODO: Throw errors if window.firebase isn't found...
+
   const scheduler = _elm_lang$core$Native_Scheduler
   const Nothing = _elm_lang$core$Maybe$Nothing
   const Just = _elm_lang$core$Maybe$Just
@@ -74,18 +76,15 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
       }
       const ref = getDatabase(config).ref(path)
       const mappedEvent = mapEvent(event)
-      const stop = () => ref.off(mappedEvent, callHandler)
-      const listener = { stop }
       ref.on(mappedEvent, callHandler)
       callback(scheduler.succeed(listener))
-      return () => {
-        if (listener && listener.stop) listener.stop()
-      }
+      return () => ref.off(mappedEvent, callHandler)
     })
 
-  const stop = listener =>
+  const stop = (config, path, event) =>
     scheduler.nativeBinding(callback => {
-      listener.stop()
+      const mappedEvent = mapEvent(event)
+      getDatabase(config).ref(path).off(mappedEvent)
       callback(schedule.succeed())
     })
 
@@ -93,6 +92,6 @@ const _elliotdickison$elm_firebase$Native_Firebase = (function() {
     set: F3(set),
     get: F2(get),
     listen: F4(listen),
-    stop,
+    stop: F3(stop),
   }
 }())

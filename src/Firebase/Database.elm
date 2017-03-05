@@ -6,7 +6,7 @@ effect module Firebase.Database
         , changes
         )
 
-import Firebase exposing (Config, Path, Error, Listener, Event(..))
+import Firebase exposing (Config, Path, Error, Event(..))
 import Firebase.Database.LowLevel as LowLevel
 import Json.Encode as Encode
 import Task exposing (Task)
@@ -23,8 +23,7 @@ type MySub msg
 
 
 type alias State msg =
-    { listeners : List Listener
-    , subs : List (MySub msg)
+    { subs : List (MySub msg)
     , listenAttempted : Bool
     , latestValue : Maybe Encode.Value
     }
@@ -62,7 +61,7 @@ newChildren config path toMsg =
 -- DATABASE
 
 
-listen : Platform.Router msg Msg -> Config -> Path -> Event -> Task Never Listener
+listen : Platform.Router msg Msg -> Config -> Path -> Event -> Task Never ()
 listen router config path event =
     let
         handler value prevKey =
@@ -78,8 +77,7 @@ listen router config path event =
 init : Task Never (State msg)
 init =
     Task.succeed
-        { listeners = []
-        , subs = []
+        { subs = []
         , listenAttempted = False
         , latestValue = Nothing
         }

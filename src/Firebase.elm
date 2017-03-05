@@ -1,4 +1,4 @@
-module Firebase exposing (Error(..), Event(..), Config, Path, Listener)
+module Firebase exposing (Error(..), Event(..), Config, Path)
 
 -- TYPES
 
@@ -24,10 +24,6 @@ type Error
 
 type alias Path =
     String
-
-
-type Listener
-    = Listener
 
 
 type Event

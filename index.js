@@ -1,5 +1,7 @@
 require("index.html")
-const firebase = require("firebase")
+
+// Set on the window so it's accessible to Elm firebase...
+window.firebase = require("firebase")
 
 const Elm = require("src/Main.elm")
 
