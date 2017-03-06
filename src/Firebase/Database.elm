@@ -12,14 +12,18 @@ import Json.Encode as Encode
 import Task exposing (Task)
 
 
+type alias EventSignature =
+    ( Config, Path, Event )
+
+
 type MyCmd msg
     = Set Config Path (Error -> msg) Encode.Value
     | Get Config Path (Result Error Encode.Value -> msg)
 
 
 type MySub msg
-    = MySubValue Config Path Event (Encode.Value -> msg)
-    | MySubValueAndPrevKey Config Path Event (Encode.Value (Maybe String) -> msg)
+    = MySubValue EventSignature (Encode.Value -> msg)
+    | MySubValueAndPrevKey EventSignature (Encode.Value (Maybe String) -> msg)
 
 
 type alias State msg =
@@ -49,12 +53,12 @@ get config path toMsg =
 
 changes : Config -> Path -> (Encode.Value -> msg) -> Sub msg
 changes config path toMsg =
-    subscription (MySubValue config path Change toMsg)
+    subscription (MySubValue ( config, path, Change ) toMsg)
 
 
 newChildren : Config -> Path -> (Encode.Value (Maybe String) -> msg) -> Sub msg
 newChildren config path toMsg =
-    subscription (MySubValueAndPrevKey config path ChildAdd toMsg)
+    subscription (MySubValueAndPrevKey ( config, path, ChildAdd ) toMsg)
 
 
 
@@ -96,11 +100,21 @@ cmdMap f cmd =
 subMap : (a -> b) -> MySub a -> MySub b
 subMap f sub =
     case sub of
-        MySubValue config path event toMsg ->
-            MySubValue config path event (toMsg >> f)
+        MySubValue signature toMsg ->
+            MySubValue signature (toMsg >> f)
 
-        MySubValueAndPrevKey config path event toMsg ->
-            MySubValueAndPrevKey config path event (toMsg >> f)
+        MySubValueAndPrevKey signature toMsg ->
+            MySubValueAndPrevKey signature (toMsg >> f)
+
+
+subEventSignature : MySub msg -> EventSignature
+subEventSignature sub =
+    case sub of
+        MySubValue signature _ ->
+            signature
+
+        MySubValueAndPrevKey signature _ ->
+            signature
 
 
 onEffects :
@@ -109,30 +123,46 @@ onEffects :
     -> List (MySub msg)
     -> State msg
     -> Task Never (State msg)
-onEffects router cmdList subList state =
+onEffects router cmds subs state =
     let
-        nextSubList =
-            subList
+        signatures =
+            List.map subEventSignature state.subs
+
+        nextSignatures =
+            List.map subEventSignature subs
+
+        addedSignatures =
+            nextSignatures
+                |> List.filter (not << (signatures |> (flip List.member)))
+                |> Debug.log "added signatures"
+
+        removedSubs =
+            signatures
+                |> List.filter (not << (nextSignatures |> (flip List.member)))
+                |> Debug.log "removed signatures"
+
+        nextState =
+            { state | subs = subs }
     in
-        case cmdList of
+        case cmds of
             [] ->
                 --case ( state.listenAttempted, state.app ) of
                 --    ( False, Just app ) ->
                 --        listen router app "user" Change
-                --            |> Task.andThen (\pid -> onEffects router cmdList subList { state | listenAttempted = True })
+                --            |> Task.andThen (\pid -> onEffects router cmds subs { nextState | listenAttempted = True })
                 --    _ ->
-                Task.succeed state
+                Task.succeed nextState
 
-            (Set config path toMsg value) :: cmdListTail ->
+            (Set config path toMsg value) :: cmdsTail ->
                 LowLevel.set config path value
                     |> Task.onError (\error -> Platform.sendToApp router (toMsg error))
-                    |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
+                    |> Task.andThen (\_ -> onEffects router cmdsTail subs nextState)
 
-            (Get config path toMsg) :: cmdListTail ->
+            (Get config path toMsg) :: cmdsTail ->
                 LowLevel.get config path
                     |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
                     |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
-                    |> Task.andThen (\_ -> onEffects router cmdListTail subList state)
+                    |> Task.andThen (\_ -> onEffects router cmdsTail subs nextState)
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
