@@ -10,9 +10,6 @@
   },
   "author": "elliotdickison",
   "devDependencies": {
-    "babel-core": "^6.22.1",
-    "babel-loader": "^6.2.10",
-    "babel-preset-es2017": "^6.22.0",
     "elm-hot-loader": "^0.5.4",
     "elm-webpack-loader": "^4.2.0",
     "eslint": "^3.14.0",
