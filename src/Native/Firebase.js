@@ -87,6 +87,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
   function listen(config, path, event, handler) {
     return scheduler.nativeBinding(function(callback) {
+      console.log("listening", path, event)
       var ref = getDatabase(config).ref(path)
       var mappedEvent = mapEvent(event)
       ref.on(mappedEvent, function(snapshot, prevKey) {

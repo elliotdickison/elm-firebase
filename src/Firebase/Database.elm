@@ -34,7 +34,9 @@ type alias State msg =
 
 
 type Msg
-    = DataReceived Encode.Value (Maybe String)
+    = StartListeners (List EventSignature)
+    | StopListeners (List EventSignature)
+    | HandleListenerValue EventSignature Encode.Value (Maybe String)
 
 
 
@@ -62,20 +64,55 @@ newChildren config path toMsg =
 
 
 
--- DATABASE
+-- HELPERS
 
 
 listen : Platform.Router msg Msg -> Config -> Path -> Event -> Task Never ()
 listen router config path event =
     let
         handler value prevKey =
-            Platform.sendToSelf router (DataReceived value prevKey)
+            Platform.sendToSelf router (HandleListenerValue ( config, path, event ) value prevKey)
     in
         LowLevel.listen config path event handler
 
 
+getEventSignature : MySub msg -> EventSignature
+getEventSignature sub =
+    case sub of
+        MySubValue signature _ ->
+            signature
 
--- MANAGER
+        MySubValueAndPrevKey signature _ ->
+            signature
+
+
+diffEventSignatures :
+    List EventSignature
+    -> List EventSignature
+    -> List EventSignature
+diffEventSignatures a b =
+    List.foldl
+        (\signature uniqueList ->
+            let
+                memberOfA =
+                    List.member signature a
+
+                memberOfB =
+                    List.member signature uniqueList
+            in
+                case ( memberOfA, memberOfB ) of
+                    ( False, False ) ->
+                        signature :: uniqueList
+
+                    _ ->
+                        uniqueList
+        )
+        []
+        b
+
+
+
+-- EFFECT MANAGER
 
 
 init : Task Never (State msg)
@@ -107,16 +144,6 @@ subMap f sub =
             MySubValueAndPrevKey signature (toMsg >> f)
 
 
-subEventSignature : MySub msg -> EventSignature
-subEventSignature sub =
-    case sub of
-        MySubValue signature _ ->
-            signature
-
-        MySubValueAndPrevKey signature _ ->
-            signature
-
-
 onEffects :
     Platform.Router msg Msg
     -> List (MyCmd msg)
@@ -124,49 +151,66 @@ onEffects :
     -> State msg
     -> Task Never (State msg)
 onEffects router cmds subs state =
-    let
-        signatures =
-            List.map subEventSignature state.subs
+    case cmds of
+        [] ->
+            let
+                signatures =
+                    List.map getEventSignature state.subs
 
-        nextSignatures =
-            List.map subEventSignature subs
+                nextSignatures =
+                    List.map getEventSignature subs
 
-        addedSignatures =
-            nextSignatures
-                |> List.filter (not << (signatures |> (flip List.member)))
-                |> Debug.log "added signatures"
+                addedSignatures =
+                    diffEventSignatures signatures nextSignatures
+                        |> Debug.log "added signatures"
 
-        removedSubs =
-            signatures
-                |> List.filter (not << (nextSignatures |> (flip List.member)))
-                |> Debug.log "removed signatures"
+                removedSignatures =
+                    diffEventSignatures nextSignatures signatures
+                        |> Debug.log "removed signatures"
+            in
+                case ( List.isEmpty addedSignatures, List.isEmpty removedSignatures ) of
+                    ( False, False ) ->
+                        Platform.sendToSelf router (StartListeners addedSignatures)
+                            |> Task.andThen (\_ -> Platform.sendToSelf router (StopListeners removedSignatures))
+                            |> Task.andThen (\_ -> Task.succeed { state | subs = subs })
 
-        nextState =
-            { state | subs = subs }
-    in
-        case cmds of
-            [] ->
-                --case ( state.listenAttempted, state.app ) of
-                --    ( False, Just app ) ->
-                --        listen router app "user" Change
-                --            |> Task.andThen (\pid -> onEffects router cmds subs { nextState | listenAttempted = True })
-                --    _ ->
-                Task.succeed nextState
+                    ( False, True ) ->
+                        Platform.sendToSelf router (StartListeners addedSignatures)
+                            |> Task.andThen (\_ -> Task.succeed { state | subs = subs })
 
-            (Set config path toMsg value) :: cmdsTail ->
-                LowLevel.set config path value
-                    |> Task.onError (\error -> Platform.sendToApp router (toMsg error))
-                    |> Task.andThen (\_ -> onEffects router cmdsTail subs nextState)
+                    ( True, False ) ->
+                        Platform.sendToSelf router (StopListeners removedSignatures)
+                            |> Task.andThen (\_ -> Task.succeed { state | subs = subs })
 
-            (Get config path toMsg) :: cmdsTail ->
-                LowLevel.get config path
-                    |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
-                    |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
-                    |> Task.andThen (\_ -> onEffects router cmdsTail subs nextState)
+                    ( True, True ) ->
+                        Task.succeed { state | subs = subs }
+
+        (Set config path toMsg value) :: otherCmds ->
+            LowLevel.set config path value
+                |> Task.onError (\error -> Platform.sendToApp router (toMsg error))
+                |> Task.andThen (\_ -> onEffects router otherCmds subs state)
+
+        (Get config path toMsg) :: otherCmds ->
+            LowLevel.get config path
+                |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
+                |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
+                |> Task.andThen (\_ -> onEffects router otherCmds subs state)
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
 onSelfMsg router selfMsg state =
     case selfMsg of
-        DataReceived value prevKey ->
-            Task.succeed { state | latestValue = value |> Debug.log "heard" |> Just }
+        StartListeners (( config, path, event ) :: otherSignatures) ->
+            listen router config path event
+                |> Task.andThen (\_ -> onSelfMsg router (StartListeners otherSignatures) state)
+
+        StopListeners (( config, path, event ) :: otherSignatures) ->
+            LowLevel.stop config path event
+                |> Task.andThen (\_ -> onSelfMsg router (StopListeners otherSignatures) state)
+
+        HandleListenerValue signature value prevKey ->
+            Task.succeed
+                { state | latestValue = value |> Debug.log "heard" |> Just }
+
+        _ ->
+            Task.succeed state
