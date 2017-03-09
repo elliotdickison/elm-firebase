@@ -57,7 +57,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
       try {
         getDatabase(config).ref(path).set(data)
           .then(function() {
-            callback(scheduler.succeed())
+            callback(scheduler.succeed(data))
           })
           .catch(function(error) {
             callback(scheduler.fail(mapError(error)))
@@ -87,7 +87,6 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
   function listen(config, path, event, handler) {
     return scheduler.nativeBinding(function(callback) {
-      console.log("listening", path, event)
       var ref = getDatabase(config).ref(path)
       var mappedEvent = mapEvent(event)
       ref.on(mappedEvent, function(snapshot, prevKey) {
@@ -98,7 +97,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     })
   }
 
-  function stop(config, path, event) {
+  function stopListening(config, path, event) {
     return scheduler.nativeBinding(function(callback) {
       var mappedEvent = mapEvent(event)
       getDatabase(config).ref(path).off(mappedEvent)
@@ -110,6 +109,6 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     set: F3(set),
     get: F2(get),
     listen: F4(listen),
-    stop: F3(stop),
+    stopListening: F3(stopListening),
   }
 }())

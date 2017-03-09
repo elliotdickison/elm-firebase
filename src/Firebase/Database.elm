@@ -17,7 +17,7 @@ type alias EventSignature =
 
 
 type MyCmd msg
-    = Set Config Path (Error -> msg) Encode.Value
+    = Set Config Path (Result Error Encode.Value -> msg) Encode.Value
     | Get Config Path (Result Error Encode.Value -> msg)
 
 
@@ -27,23 +27,18 @@ type MySub msg
 
 
 type alias State msg =
-    { subs : List (MySub msg)
-    , listenAttempted : Bool
-    , latestValue : Maybe Encode.Value
-    }
+    List (MySub msg)
 
 
 type Msg
-    = StartListener EventSignature
-    | StopListener EventSignature
-    | HandleListenerValue EventSignature Encode.Value (Maybe String)
+    = SubResponse EventSignature Encode.Value (Maybe String)
 
 
 
 -- API
 
 
-set : Config -> Path -> (Error -> msg) -> Encode.Value -> Cmd msg
+set : Config -> Path -> (Result Error Encode.Value -> msg) -> Encode.Value -> Cmd msg
 set config path toMsg value =
     command (Set config path toMsg value)
 
@@ -85,34 +80,76 @@ diffEventSignatures a b =
     List.foldl
         (\signature uniqueList ->
             let
-                memberOfA =
-                    List.member signature a
-
-                memberOfB =
-                    List.member signature uniqueList
+                notIn =
+                    List.member signature >> not
             in
-                case ( memberOfA, memberOfB ) of
-                    ( False, False ) ->
-                        signature :: uniqueList
-
-                    _ ->
-                        uniqueList
+                if notIn a && notIn uniqueList then
+                    signature :: uniqueList
+                else
+                    uniqueList
         )
         []
         b
+
+
+listen : Platform.Router msg Msg -> EventSignature -> Task Never ()
+listen router ( config, path, event ) =
+    let
+        toMsg =
+            SubResponse ( config, path, event )
+
+        handler value prevKey =
+            Platform.sendToSelf router (toMsg value prevKey)
+    in
+        LowLevel.listen config path event handler
+
+
+stopListening : EventSignature -> Task Never ()
+stopListening ( config, path, event ) =
+    LowLevel.stopListening config path event
+
+
+handleSubResponse :
+    Platform.Router msg Msg
+    -> Encode.Value
+    -> Maybe String
+    -> MySub msg
+    -> Task Never ()
+handleSubResponse router value prevKey sub =
+    case sub of
+        MySubValue _ toMsg ->
+            Platform.sendToApp router (toMsg value)
+
+        MySubValueAndPrevKey _ toMsg ->
+            Platform.sendToApp router (toMsg value prevKey)
+
+
+runCmd : Platform.Router msg Msg -> MyCmd msg -> Task Never ()
+runCmd router cmd =
+    case cmd of
+        Set config path toMsg value ->
+            LowLevel.set config path value
+                |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
+                |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
+
+        Get config path toMsg ->
+            LowLevel.get config path
+                |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
+                |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
 
 
 
 -- EFFECT MANAGER
 
 
+(&>) : Task x a -> Task x b -> Task x b
+(&>) t1 t2 =
+    Task.andThen (\_ -> t2) t1
+
+
 init : Task Never (State msg)
 init =
-    Task.succeed
-        { subs = []
-        , listenAttempted = False
-        , latestValue = Nothing
-        }
+    Task.succeed []
 
 
 cmdMap : (a -> b) -> MyCmd a -> MyCmd b
@@ -142,71 +179,40 @@ onEffects :
     -> State msg
     -> Task Never (State msg)
 onEffects router cmds subs state =
-    case cmds of
-        [] ->
-            let
-                signatures =
-                    List.map getEventSignature state.subs
+    let
+        signatures =
+            List.map getEventSignature state
 
-                nextSignatures =
-                    List.map getEventSignature subs
+        nextSignatures =
+            List.map getEventSignature subs
 
-                startListeners =
-                    diffEventSignatures signatures nextSignatures
-                        |> List.map (StartListener >> Platform.sendToSelf router)
-                        |> Task.sequence
+        startListeners =
+            diffEventSignatures signatures nextSignatures
+                |> List.map (listen router)
+                |> Task.sequence
 
-                stopListeners =
-                    diffEventSignatures nextSignatures signatures
-                        |> List.map (StopListener >> Platform.sendToSelf router)
-                        |> Task.sequence
-            in
-                startListeners
-                    |> Task.andThen (\_ -> stopListeners)
-                    |> Task.andThen (\_ -> Task.succeed { state | subs = subs })
+        stopListeners =
+            diffEventSignatures nextSignatures signatures
+                |> List.map stopListening
+                |> Task.sequence
 
-        (Set config path toMsg value) :: otherCmds ->
-            LowLevel.set config path value
-                |> Task.onError (\error -> Platform.sendToApp router (toMsg error))
-                |> Task.andThen (\_ -> onEffects router otherCmds subs state)
-
-        (Get config path toMsg) :: otherCmds ->
-            LowLevel.get config path
-                |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
-                |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
-                |> Task.andThen (\_ -> onEffects router otherCmds subs state)
+        runCmds =
+            cmds
+                |> List.map (runCmd router)
+                |> Task.sequence
+    in
+        startListeners
+            &> stopListeners
+            &> runCmds
+            &> Task.succeed subs
 
 
 onSelfMsg : Platform.Router msg Msg -> Msg -> State msg -> Task Never (State msg)
 onSelfMsg router selfMsg state =
     case selfMsg of
-        StartListener ( config, path, event ) ->
-            let
-                handler value prevKey =
-                    Platform.sendToSelf router (HandleListenerValue ( config, path, event ) value prevKey)
-            in
-                LowLevel.listen config path event handler
-                    |> Task.andThen (\_ -> Task.succeed state)
-
-        StopListener ( config, path, event ) ->
-            LowLevel.stop config path event
-                |> Task.andThen (\_ -> Task.succeed state)
-
-        HandleListenerValue signature value prevKey ->
-            state.subs
-                |> List.filter (\sub -> getEventSignature sub == signature)
-                |> List.map
-                    (\sub ->
-                        case sub of
-                            MySubValue _ toMsg ->
-                                Platform.sendToApp router (toMsg value)
-
-                            MySubValueAndPrevKey _ toMsg ->
-                                Platform.sendToApp router (toMsg value prevKey)
-                    )
+        SubResponse signature value prevKey ->
+            state
+                |> List.filter (getEventSignature >> (==) signature)
+                |> List.map (handleSubResponse router value prevKey)
                 |> Task.sequence
-                |> Task.andThen
-                    (\_ ->
-                        Task.succeed
-                            { state | latestValue = value |> Debug.log "heard" |> Just }
-                    )
+                |> Task.andThen (\_ -> Task.succeed state)

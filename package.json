@@ -2,7 +2,7 @@
   "name": "elm-firebase",
   "private": true,
   "version": "0.0.1",
-  "description": "Firebase bindings for Elm",
+  "description": "An Elm client for Firebase",
   "main": "index.js",
   "scripts": {
     "start": "webpack-dashboard -m -- webpack-dev-server --hot --inline",

@@ -19,9 +19,8 @@ type Msg
     = RequestSet
     | RequestGet
     | GetComplete (Result Firebase.Error Encode.Value)
-    | SetFailed Firebase.Error
+    | SetComplete (Result Firebase.Error Encode.Value)
     | OnChange Encode.Value
-    | OnChange2 Encode.Value
 
 
 main : Program Never Model Msg
@@ -65,10 +64,15 @@ update msg model =
     case msg of
         RequestSet ->
             { model | error = Nothing }
-                ! [ Database.set model.config "user" SetFailed (Encode.string "bob4") ]
+                ! [ Database.set model.config "user" SetComplete (Encode.string "HELLO") ]
 
-        SetFailed error ->
-            { model | error = Just (toString error) } ! []
+        SetComplete result ->
+            case result of
+                Ok _ ->
+                    { model | error = Nothing } ! []
+
+                Err error ->
+                    { model | error = Just (toString error) } ! []
 
         RequestGet ->
             model ! [ Database.get model.config "user" GetComplete ]
@@ -95,18 +99,9 @@ update msg model =
                 Err error ->
                     { model | error = Just error, user = Nothing } ! []
 
-        OnChange2 data ->
-            case Decode.decodeValue Decode.string data of
-                Ok string ->
-                    { model | error = Nothing, user = Just string } ! []
-
-                Err error ->
-                    { model | error = Just error, user = Nothing } ! []
-
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Database.changes model.config "user" OnChange
-        , Database.changes model.config "user" OnChange2
         ]
