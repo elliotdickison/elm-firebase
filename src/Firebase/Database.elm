@@ -12,6 +12,27 @@ import Json.Encode as Encode
 import Task exposing (Task)
 
 
+-- TODO: get rid of "name" in the config and update the native "getDatabase"
+-- function to diff apps based on the database URL
+-- Value = Encode.Value
+-- Key = String
+-- KeyValue = (Key, Value)
+-- READ
+-- get : Config -> (Result Error Value -> msg) -> Path -> Cmd msg
+-- getList : Config -> (Result Error (List KeyValue) -> msg) -> Path -> Order -> Cmd msg
+-- WRITE
+-- set : Config -> (Result Error Value -> msg) -> Path -> Value -> Cmd msg
+-- update : Config -> (Result Error Value -> msg) -> Path -> (Value -> Value) -> Cmd msg
+-- merge : Config -> (Result Error Value -> msg) -> Path -> Value -> Cmd msg
+-- SUBSCRIBE
+-- changes : Config -> (Value -> msg) -> Path -> Sub msg
+-- listChanges : Config -> (List KeyValue -> msg) -> Path -> Order -> Sub msg
+-- listItemChanges : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
+-- listItemAdditions : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
+-- listItemRemovals : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
+-- listItemMoves : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
+
+
 type alias EventSignature =
     ( Config, Path, Event )
 
@@ -38,24 +59,19 @@ type Msg
 -- API
 
 
-set : Config -> Path -> (Result Error Encode.Value -> msg) -> Encode.Value -> Cmd msg
-set config path toMsg value =
+set : Config -> (Result Error Encode.Value -> msg) -> Path -> Encode.Value -> Cmd msg
+set config toMsg path value =
     command (Set config path toMsg value)
 
 
-get : Config -> Path -> (Result Error Encode.Value -> msg) -> Cmd msg
-get config path toMsg =
+get : Config -> (Result Error Encode.Value -> msg) -> Path -> Cmd msg
+get config toMsg path =
     command (Get config path toMsg)
 
 
-changes : Config -> Path -> (Encode.Value -> msg) -> Sub msg
-changes config path toMsg =
+changes : Config -> (Encode.Value -> msg) -> Path -> Sub msg
+changes config toMsg path =
     subscription (MySubValue ( config, path, Change ) toMsg)
-
-
-newChildren : Config -> Path -> (Encode.Value -> Maybe String -> msg) -> Sub msg
-newChildren config path toMsg =
-    subscription (MySubValueAndPrevKey ( config, path, ChildAdd ) toMsg)
 
 
 

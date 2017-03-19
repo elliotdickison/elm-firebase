@@ -1,4 +1,16 @@
-module Firebase exposing (Error(..), Event(..), Config, Path)
+module Firebase
+    exposing
+        ( Error(..)
+        , Event(..)
+        , Order(..)
+        , OrderFilter(..)
+        , OrderLimit(..)
+        , Config
+        , Path
+        )
+
+import Json.Encode as Encode
+
 
 -- TYPES
 
@@ -32,3 +44,24 @@ type Event
     | ChildChange
     | ChildRemove
     | ChildMove
+
+
+type Order
+    = DefaultOrder OrderLimit
+    | OrderByKey OrderFilter OrderLimit
+    | OrderByValue OrderFilter OrderLimit
+    | OrderByChild Path OrderFilter OrderLimit
+
+
+type OrderFilter
+    = NoFilter
+    | Matching Encode.Value
+    | StartingAt Encode.Value
+    | EndingAt Encode.Value
+    | Between Encode.Value Encode.Value
+
+
+type OrderLimit
+    = NoLimit
+    | First Int
+    | Last Int

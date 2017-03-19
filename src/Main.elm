@@ -10,17 +10,30 @@ import Firebase.Database as Database
 
 type alias Model =
     { error : Maybe String
-    , user : Maybe String
-    , config : Firebase.Config
+    , users : List String
     }
 
 
 type Msg
-    = RequestSet
-    | RequestGet
-    | GetComplete (Result Firebase.Error Encode.Value)
-    | SetComplete (Result Firebase.Error Encode.Value)
-    | OnChange Encode.Value
+    = RequestUsers
+    | UserRequestSucceeded (Result Firebase.Error Encode.Value)
+    | UsersChanged Encode.Value
+
+
+config : Firebase.Config
+config =
+    { name = "example-app"
+    , apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
+    , authDomain = "elm-firebase.firebaseapp.com"
+    , databaseUrl = "https://elm-firebase.firebaseio.com"
+    , storageBucket = "elm-firebase.appspot.com"
+    , messagingSenderId = "488262915403"
+    }
+
+
+decodeUsers : Encode.Value -> Result String (List String)
+decodeUsers =
+    Decode.decodeValue (Decode.list Decode.string)
 
 
 main : Program Never Model Msg
@@ -36,15 +49,7 @@ main =
 init : ( Model, Cmd Msg )
 init =
     { error = Nothing
-    , user = Nothing
-    , config =
-        { name = "example-app"
-        , apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
-        , authDomain = "elm-firebase.firebaseapp.com"
-        , databaseUrl = "https://elm-firebase.firebaseio.com"
-        , storageBucket = "elm-firebase.appspot.com"
-        , messagingSenderId = "488262915403"
-        }
+    , users = []
     }
         ! []
 
@@ -53,55 +58,40 @@ view : Model -> Html Msg
 view model =
     div []
         [ div [] [ text "error: ", model.error |> Maybe.withDefault "" |> text ]
-        , div [] [ text "user: ", model.user |> Maybe.withDefault "" |> text ]
-        , button [ onClick RequestSet ] [ text "Set!" ]
-        , button [ onClick RequestGet ] [ text "Get!" ]
+        , div [] [ text "users: ", model.users |> String.join ", " |> text ]
+        , button [ onClick RequestUsers ] [ text "Get users!" ]
         ]
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        RequestSet ->
-            { model | error = Nothing }
-                ! [ Database.set model.config "user" SetComplete (Encode.string "HELLO") ]
+        RequestUsers ->
+            model ! [ Database.get config UserRequestSucceeded "users" ]
 
-        SetComplete result ->
-            case result of
-                Ok _ ->
-                    { model | error = Nothing } ! []
-
-                Err error ->
-                    { model | error = Just (toString error) } ! []
-
-        RequestGet ->
-            model ! [ Database.get model.config "user" GetComplete ]
-
-        GetComplete result ->
+        UserRequestSucceeded result ->
             let
                 decoded =
                     result
                         |> Result.mapError toString
-                        |> Result.andThen (Decode.decodeValue Decode.string)
+                        |> Result.andThen decodeUsers
             in
                 case decoded of
                     Ok value ->
-                        { model | error = Nothing, user = Just value } ! []
+                        { model | error = Nothing, users = value } ! []
 
                     Err error ->
-                        { model | error = Just error, user = Nothing } ! []
+                        { model | error = Just error, users = [] } ! []
 
-        OnChange data ->
-            case Decode.decodeValue Decode.string data of
-                Ok string ->
-                    { model | error = Nothing, user = Just string } ! []
+        UsersChanged value ->
+            case (decodeUsers value) of
+                Ok value ->
+                    { model | error = Nothing, users = value } ! []
 
                 Err error ->
-                    { model | error = Just error, user = Nothing } ! []
+                    { model | error = Just error, users = [] } ! []
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch
-        [ Database.changes model.config "user" OnChange
-        ]
+    Sub.batch [ Database.changes config UsersChanged "users" ]
