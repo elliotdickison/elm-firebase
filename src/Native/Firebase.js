@@ -6,6 +6,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
   var scheduler = _elm_lang$core$Native_Scheduler
   var Nothing = _elm_lang$core$Maybe$Nothing
   var Just = _elm_lang$core$Maybe$Just
+  var Utils = _elm_lang$core$Native_Utils
 
   var getApp = (function() {
     var apps = {}
@@ -26,57 +27,51 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     return getDatabase(config).ref(path)
   }
 
-  // function getRefFromQuery(config, query) {
-  //   const ref = getRefFromPath(config, query.path)
-  //   const refWithOrder = applyQueryOrderToRef(ref, query.order)
-  //   return applyQueryLimitToRef(refWithOrder, query.limit)
-  // }
+  function applyQueryToRef(ref, query) {
+    switch (query.ctor) {
+    case "OrderByKey": {
+      const refWithOrder = ref.orderByKey()
+      const refWithFilter = applyQueryFilterToRef(refWithOrder, query._0)
+      return applyQueryLimitToRef(refWithFilter, query._1)
+    }
+    case "OrderByChild": {
+      const refWithOrder = ref.orderByChild(query._0)
+      const refWithFilter = applyQueryFilterToRef(refWithOrder, query._1)
+      return applyQueryLimitToRef(refWithFilter, query._2)
+    }
+    case "OrderByValue": {
+      const refWithOrder = ref.orderByValue()
+      const refWithFilter = applyQueryFilterToRef(refWithOrder, query._0)
+      return applyQueryLimitToRef(refWithFilter, query._1)
+    }
+    }
+  }
 
-  // function applyQueryOrderToRef(ref, order) {
-  //   switch (order.ctor) {
-  //   case "AnyOrder":
-  //     return ref
-  //   case "OrderByChild": {
-  //     const refWithOrder = ref.orderByChild(order._0)
-  //     return applyQueryOrderFilterToRef(refWithOrder, order._1)
-  //   }
-  //   case "OrderByKey": {
-  //     const refWithOrder = ref.orderByKey()
-  //     return applyQueryOrderFilterToRef(refWithOrder, order._0)
-  //   }
-  //   case "OrderByValue": {
-  //     const refWithOrder = ref.orderByValue()
-  //     console.log("order by value!", order._0)
-  //     return applyQueryOrderFilterToRef(refWithOrder, order._0)
-  //   }
-  //   }
-  // }
+  function applyQueryFilterToRef(ref, filter) {
+    switch (filter.ctor) {
+    case "NoFilter":
+      return ref
+    case "Matching":
+      return ref.equalTo(filter._0)
+    case "StartingAt":
+      return ref.startAt(filter._0)
+    case "EndingAt":
+      return ref.endAt(filter._0)
+    case "Between":
+      return ref.startAt(filter._0).endAt(filter._1)
+    }
+  }
 
-  // function applyQueryOrderFilterToRef(ref, orderFilter) {
-  //   switch (orderFilter.ctor) {
-  //   case "NoFilter":
-  //     return ref
-  //   case "Matching":
-  //     return ref.equalTo(orderFilter._0)
-  //   case "StartingAt":
-  //     return ref.startAt(orderFilter._0)
-  //   case "EndingAt":
-  //     return ref.endAt(orderFilter._0)
-  //   case "Between":
-  //     return ref.startAt(orderFilter._0).endAt(orderFilter._0)
-  //   }
-  // }
-
-  // function applyQueryLimitToRef(ref, limit) {
-  //   switch (limit.ctor) {
-  //   case "NoLimit":
-  //     return ref
-  //   case "First":
-  //     return ref.limitToFirst(limit._0)
-  //   case "Last":
-  //     return ref.limitToLast(limit._0)
-  //   }
-  // }
+  function applyQueryLimitToRef(ref, limit) {
+    switch (limit.ctor) {
+    case "NoLimit":
+      return ref
+    case "First":
+      return ref.limitToFirst(limit._0)
+    case "Last":
+      return ref.limitToLast(limit._0)
+    }
+  }
 
   function mapConfigIn(config) {
     return Object.assign({}, config, {
@@ -91,6 +86,14 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     default:
       return { ctor: "OtherError", _0: error.code }
     }
+  }
+
+  function mapListOut(arr) {
+    return arr
+      .reverse()
+      .reduce(function(list, item) {
+        return { ctor: "::", _0: item, _1: list }
+      }, { ctor: "[]" })
   }
 
   function mapEventIn(event) {
@@ -140,6 +143,28 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     })
   }
 
+  function getList(config, path, query) {
+    return scheduler.nativeBinding(function(callback) {
+      try {
+        const ref = getRefFromPath(config, path)
+        const refWithQuery = applyQueryToRef(ref, query)
+        refWithQuery.once("value")
+          .then(function(snapshot) {
+            let items = []
+            snapshot.forEach(function(itemSnapshot) {
+              items.push(Utils.Tuple2(itemSnapshot.key, itemSnapshot.val()))
+            })
+            callback(scheduler.succeed(mapListOut(items)))
+          })
+          .catch(function(error) {
+            callback(scheduler.fail(mapErrorOut(error)))
+          })
+      } catch (error) {
+        callback(scheduler.fail(mapErrorOut(error)))
+      }
+    })
+  }
+
 
   function listen(config, path, event, handler) {
     return scheduler.nativeBinding(function(callback) {
@@ -164,6 +189,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
   return {
     set: F3(set),
     get: F2(get),
+    getList: F3(getList),
     listen: F4(listen),
     stopListening: F3(stopListening),
   }

@@ -1,8 +1,8 @@
-module Firebase.Database.LowLevel exposing (set, get, listen, stopListening)
+module Firebase.Database.LowLevel exposing (set, get, getList, listen, stopListening)
 
 import Json.Encode as Encode
 import Task exposing (Task)
-import Firebase exposing (Config, Path, Error, Event)
+import Firebase exposing (Config, Path, Query, Key, Error, Event)
 import Native.Firebase
 
 
@@ -23,11 +23,20 @@ get =
     Native.Firebase.get
 
 
-listen : Config -> Path -> Event -> (Encode.Value -> Maybe String -> Task Never ()) -> Task Never ()
-listen config query event handler =
-    Native.Firebase.listen config query event handler
+getList : Config -> Path -> Query -> Task Error (List ( Key, Encode.Value ))
+getList =
+    Native.Firebase.getList
+
+
+
+-- SUBSCRIBING TO DATA
+
+
+listen : Config -> Path -> Event -> (Encode.Value -> Maybe Key -> Task Never ()) -> Task Never ()
+listen =
+    Native.Firebase.listen
 
 
 stopListening : Config -> Path -> Event -> Task Never ()
-stopListening config query event =
-    Native.Firebase.stopListening config query event
+stopListening =
+    Native.Firebase.stopListening

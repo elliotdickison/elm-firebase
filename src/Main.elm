@@ -16,7 +16,7 @@ type alias Model =
 
 type Msg
     = RequestUsers
-    | UserRequestSucceeded (Result Firebase.Error Encode.Value)
+    | UserRequestSucceeded (Result Firebase.Error (List ( Firebase.Key, Encode.Value )))
     | UsersChanged Encode.Value
 
 
@@ -67,14 +67,14 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         RequestUsers ->
-            model ! [ Database.get config UserRequestSucceeded "users" ]
+            model ! [ Database.getList config UserRequestSucceeded "users" (Firebase.OrderByKey Firebase.NoFilter Firebase.NoLimit) ]
 
         UserRequestSucceeded result ->
             let
                 decoded =
                     result
                         |> Result.mapError toString
-                        |> Result.andThen decodeUsers
+                        |> Result.map (List.map toString)
             in
                 case decoded of
                     Ok value ->

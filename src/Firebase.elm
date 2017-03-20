@@ -2,11 +2,12 @@ module Firebase
     exposing
         ( Error(..)
         , Event(..)
-        , Order(..)
-        , OrderFilter(..)
-        , OrderLimit(..)
+        , Query(..)
+        , QueryFilter(..)
+        , QueryLimit(..)
         , Config
         , Path
+        , Key
         )
 
 import Json.Encode as Encode
@@ -38,6 +39,10 @@ type alias Path =
     String
 
 
+type alias Key =
+    String
+
+
 type Event
     = Change
     | ChildAdd
@@ -46,14 +51,13 @@ type Event
     | ChildMove
 
 
-type Order
-    = DefaultOrder OrderLimit
-    | OrderByKey OrderFilter OrderLimit
-    | OrderByValue OrderFilter OrderLimit
-    | OrderByChild Path OrderFilter OrderLimit
+type Query
+    = OrderByKey QueryFilter QueryLimit
+    | OrderByValue QueryFilter QueryLimit
+    | OrderByChild Path QueryFilter QueryLimit
 
 
-type OrderFilter
+type QueryFilter
     = NoFilter
     | Matching Encode.Value
     | StartingAt Encode.Value
@@ -61,7 +65,7 @@ type OrderFilter
     | Between Encode.Value Encode.Value
 
 
-type OrderLimit
+type QueryLimit
     = NoLimit
     | First Int
     | Last Int

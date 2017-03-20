@@ -3,10 +3,11 @@ effect module Firebase.Database
     exposing
         ( set
         , get
+        , getList
         , changes
         )
 
-import Firebase exposing (Config, Path, Error, Event(..))
+import Firebase exposing (Config, Path, Key, Query, Error, Event(..))
 import Firebase.Database.LowLevel as LowLevel
 import Json.Encode as Encode
 import Task exposing (Task)
@@ -16,21 +17,20 @@ import Task exposing (Task)
 -- function to diff apps based on the database URL
 -- Value = Encode.Value
 -- Key = String
--- KeyValue = (Key, Value)
 -- READ
 -- get : Config -> (Result Error Value -> msg) -> Path -> Cmd msg
--- getList : Config -> (Result Error (List KeyValue) -> msg) -> Path -> Order -> Cmd msg
+-- getList : Config -> (Result Error (List (Key, Encode.Value)) -> msg) -> Path -> Query -> Cmd msg
 -- WRITE
 -- set : Config -> (Result Error Value -> msg) -> Path -> Value -> Cmd msg
 -- update : Config -> (Result Error Value -> msg) -> Path -> (Value -> Value) -> Cmd msg
 -- merge : Config -> (Result Error Value -> msg) -> Path -> Value -> Cmd msg
 -- SUBSCRIBE
 -- changes : Config -> (Value -> msg) -> Path -> Sub msg
--- listChanges : Config -> (List KeyValue -> msg) -> Path -> Order -> Sub msg
--- listItemChanges : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
--- listItemAdditions : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
--- listItemRemovals : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
--- listItemMoves : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Order -> Sub msg
+-- listChanges : Config -> (List (Key, Encode.Value) -> msg) -> Path -> Query -> Sub msg
+-- listItemChanges : Config -> ((Key, Encode.Value) -> Maybe Key -> msg) -> Path -> Query -> Sub msg
+-- listItemAdditions : Config -> ((Key, Encode.Value) -> Maybe Key -> msg) -> Path -> Query -> Sub msg
+-- listItemRemovals : Config -> ((Key, Encode.Value) -> Maybe Key -> msg) -> Path -> Query -> Sub msg
+-- listItemMoves : Config -> ((Key, Encode.Value) -> Maybe Key -> msg) -> Path -> Query -> Sub msg
 
 
 type alias EventSignature =
@@ -38,8 +38,9 @@ type alias EventSignature =
 
 
 type MyCmd msg
-    = Set Config Path (Result Error Encode.Value -> msg) Encode.Value
-    | Get Config Path (Result Error Encode.Value -> msg)
+    = Set Config (Result Error Encode.Value -> msg) Path Encode.Value
+    | Get Config (Result Error Encode.Value -> msg) Path
+    | GetList Config (Result Error (List ( Key, Encode.Value )) -> msg) Path Query
 
 
 type MySub msg
@@ -59,14 +60,19 @@ type Msg
 -- API
 
 
-set : Config -> (Result Error Encode.Value -> msg) -> Path -> Encode.Value -> Cmd msg
-set config toMsg path value =
-    command (Set config path toMsg value)
-
-
 get : Config -> (Result Error Encode.Value -> msg) -> Path -> Cmd msg
 get config toMsg path =
-    command (Get config path toMsg)
+    command (Get config toMsg path)
+
+
+getList : Config -> (Result Error (List ( Key, Encode.Value )) -> msg) -> Path -> Query -> Cmd msg
+getList config toMsg path query =
+    command (GetList config toMsg path query)
+
+
+set : Config -> (Result Error Encode.Value -> msg) -> Path -> Encode.Value -> Cmd msg
+set config toMsg path value =
+    command (Set config toMsg path value)
 
 
 changes : Config -> (Encode.Value -> msg) -> Path -> Sub msg
@@ -143,13 +149,18 @@ handleSubResponse router value prevKey sub =
 runCmd : Platform.Router msg Msg -> MyCmd msg -> Task Never ()
 runCmd router cmd =
     case cmd of
-        Set config path toMsg value ->
+        Set config toMsg path value ->
             LowLevel.set config path value
                 |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
                 |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
 
-        Get config path toMsg ->
+        Get config toMsg path ->
             LowLevel.get config path
+                |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
+                |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
+
+        GetList config toMsg path query ->
+            LowLevel.getList config path query
                 |> Task.andThen (\value -> Platform.sendToApp router (toMsg (Ok value)))
                 |> Task.onError (\error -> Platform.sendToApp router (toMsg (Err error)))
 
@@ -171,11 +182,14 @@ init =
 cmdMap : (a -> b) -> MyCmd a -> MyCmd b
 cmdMap f cmd =
     case cmd of
-        Set config path toMsg value ->
-            Set config path (toMsg >> f) value
+        Set config toMsg path value ->
+            Set config (toMsg >> f) path value
 
-        Get config path toMsg ->
-            Get config path (toMsg >> f)
+        Get config toMsg path ->
+            Get config (toMsg >> f) path
+
+        GetList config toMsg path query ->
+            GetList config (toMsg >> f) path query
 
 
 subMap : (a -> b) -> MySub a -> MySub b
