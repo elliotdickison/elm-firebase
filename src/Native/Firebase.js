@@ -1,7 +1,14 @@
 /* eslint-disable no-unused-vars, no-undef */
 var _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
+  /**
+   * HELPERS
+   */
+
   // TODO: Throw errors if window.firebase isn't found...
+  // TODO: Remove try/catch blocks where not necessary...
+  // TODO: Convert firebase permission warnings to errors
+
   var firebase = window.firebase
   var scheduler = _elm_lang$core$Native_Scheduler
   var Nothing = _elm_lang$core$Maybe$Nothing
@@ -23,8 +30,11 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     return getApp(config).database()
   }
 
-  function getRefFromPath(config, path) {
-    return getDatabase(config).ref(path)
+  function getRef(config, path, maybeQuery) {
+    var refWithoutQuery = getDatabase(config).ref(path)
+    return maybeQuery.ctor === "Just"
+      ? applyQueryToRef(refWithoutQuery, maybeQuery._0)
+      : refWithoutQuery
   }
 
   function applyQueryToRef(ref, query) {
@@ -111,86 +121,123 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     }
   }
 
+  /**
+   * WRITING DATA
+   */
+
   function set(config, path, data) {
     return scheduler.nativeBinding(function(callback) {
+      var onComplete = function(error) {
+        if (error) {
+          callback(scheduler.fail(mapErrorOut(error)))
+        } else {
+          callback(scheduler.succeed())
+        }
+      }
       try {
-        getRefFromPath(config, path).set(data)
-          .then(function() {
-            callback(scheduler.succeed(data))
-          })
-          .catch(function(error) {
-            callback(scheduler.fail(mapErrorOut(error)))
-          })
+        getRef(config, path, Nothing).set(data, onComplete)
       } catch (error) {
         callback(scheduler.fail(mapErrorOut(error)))
       }
     })
   }
 
-  function get(config, path) {
+  function map(config, path, func) {
     return scheduler.nativeBinding(function(callback) {
+      var transactionUpdate = function(value) {
+        var mappedValue = func(value === null ? Nothing : Just(value))
+        return mappedValue.ctor === "Just"
+          ? mappedValue._0
+          : undefined
+      }
+      var onComplete = function(error, committed, snapshot) {
+        if (error) {
+          callback(scheduler.fail(mapErrorOut(error)))
+        } else {
+          callback(scheduler.succeed(snapshot))
+        }
+      }
       try {
-        getRefFromPath(config, path).once("value")
-          .then(function(snapshot) {
-            callback(scheduler.succeed(snapshot.val()))
-          })
-          .catch(function(error) {
-            callback(scheduler.fail(mapErrorOut(error)))
-          })
+        getRef(config, path, Nothing).transaction(transactionUpdate, onComplete)
       } catch (error) {
         callback(scheduler.fail(mapErrorOut(error)))
       }
     })
   }
 
-  function getList(config, path, query) {
+  /**
+   * READING DATA
+   */
+
+  function get(config, path, maybeQuery) {
     return scheduler.nativeBinding(function(callback) {
+      var successCallback = function(snapshot) {
+        callback(scheduler.succeed(snapshot))
+      }
+      var failureCallback = function(error) {
+        callback(scheduler.fail(mapErrorOut(error)))
+      }
       try {
-        const ref = getRefFromPath(config, path)
-        const refWithQuery = applyQueryToRef(ref, query)
-        refWithQuery.once("value")
-          .then(function(snapshot) {
-            let items = []
-            snapshot.forEach(function(itemSnapshot) {
-              items.push(Utils.Tuple2(itemSnapshot.key, itemSnapshot.val()))
-            })
-            callback(scheduler.succeed(mapListOut(items)))
-          })
-          .catch(function(error) {
-            callback(scheduler.fail(mapErrorOut(error)))
-          })
+        getRef(config, path, maybeQuery)
+          .once("value", successCallback, failureCallback)
       } catch (error) {
         callback(scheduler.fail(mapErrorOut(error)))
       }
     })
   }
 
+  /**
+   * SUBSCRIBING TO DATA
+   */
 
-  function listen(config, path, event, handler) {
+  function listen(config, path, maybeQuery, event, handler) {
     return scheduler.nativeBinding(function(callback) {
-      var ref = getRefFromPath(config, path)
       var mappedEvent = mapEventIn(event)
-      ref.on(mappedEvent, function(snapshot, prevKey) {
-        var maybePrevKey = prevKey ? Just(prevKey) : Nothing
-        scheduler.rawSpawn(A2(handler, snapshot.val(), maybePrevKey))
+      getRef(config, path, maybeQuery).on(mappedEvent, function(snapshot, prevKey) {
+        var maybePrevKey = prevKey === null ? Nothing : Just(prevKey)
+        scheduler.rawSpawn(A2(handler, snapshot, maybePrevKey))
       })
       callback(scheduler.succeed())
     })
   }
 
-  function stopListening(config, path, event) {
+  function stopListening(config, path, event, maybeQuery) {
     return scheduler.nativeBinding(function(callback) {
       var mappedEvent = mapEventIn(event)
-      getRefFromPath(config, path).off(mappedEvent)
+      getRef(config, path, maybeQuery).off(mappedEvent)
       callback(schedule.succeed())
     })
   }
 
+  /**
+   * PROCESSING SNAPSHOTS
+   */
+
+  function snapshotToKey(snapshot) {
+    return snapshot.key
+  }
+
+  function snapshotToValue(snapshot) {
+    var value = snapshot.val()
+    return value === null ? Nothing : Just(value)
+  }
+
+  function snapshotToList(snapshot) {
+    var snapshotList = []
+    snapshot.forEach(function(childSnapshot) {
+      snapshotList.push(childSnapshot)
+    })
+    return mapListOut(snapshotList)
+  }
+
   return {
     set: F3(set),
-    get: F2(get),
-    getList: F3(getList),
-    listen: F4(listen),
-    stopListening: F3(stopListening),
+    map: F3(map),
+    get: F3(get),
+    listen: F5(listen),
+    stopListening: F4(stopListening),
+    snapshotToKey: snapshotToKey,
+    snapshotToValue: snapshotToValue,
+    snapshotToList: snapshotToList,
   }
 }())

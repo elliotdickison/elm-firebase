@@ -1,16 +1,16 @@
 module Firebase
     exposing
         ( Error(..)
-        , Event(..)
         , Query(..)
         , QueryFilter(..)
         , QueryLimit(..)
         , Config
         , Path
         , Key
+        , KeyValue
         )
 
-import Json.Encode as Encode
+import Json.Encode as Encode exposing (Value)
 
 
 -- TYPES
@@ -43,12 +43,8 @@ type alias Key =
     String
 
 
-type Event
-    = Change
-    | ChildAdd
-    | ChildChange
-    | ChildRemove
-    | ChildMove
+type alias KeyValue =
+    ( Key, Value )
 
 
 type Query
@@ -59,10 +55,10 @@ type Query
 
 type QueryFilter
     = NoFilter
-    | Matching Encode.Value
-    | StartingAt Encode.Value
-    | EndingAt Encode.Value
-    | Between Encode.Value Encode.Value
+    | Matching Value
+    | StartingAt Value
+    | EndingAt Value
+    | Between Value Value
 
 
 type QueryLimit

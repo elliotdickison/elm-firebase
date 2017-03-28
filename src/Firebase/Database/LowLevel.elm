@@ -1,42 +1,100 @@
-module Firebase.Database.LowLevel exposing (set, get, getList, listen, stopListening)
+module Firebase.Database.LowLevel
+    exposing
+        ( Snapshot
+        , Event(..)
+        , set
+        , map
+        , get
+        , listen
+        , stopListening
+        , snapshotToKey
+        , snapshotToValue
+        , snapshotToList
+        )
 
-import Json.Encode as Encode
-import Task exposing (Task)
-import Firebase exposing (Config, Path, Query, Key, Error, Event)
+import Firebase
+    exposing
+        ( Config
+        , Path
+        , Query
+        , Key
+        , KeyValue
+        , Error
+        )
 import Native.Firebase
+import Task exposing (Task)
+import Json.Encode as Encode exposing (Value)
+
+
+type Snapshot
+    = Snapshot
+
+
+type Event
+    = Change
+    | ChildAdd
+    | ChildChange
+    | ChildRemove
+    | ChildMove
+
 
 
 -- WRITING DATA
 
 
-set : Config -> Path -> Encode.Value -> Task Error Encode.Value
+set : Config -> Path -> Value -> Task Error ()
 set =
     Native.Firebase.set
+
+
+map : Config -> Path -> (Maybe Value -> Maybe Value) -> Task Error Snapshot
+map =
+    Native.Firebase.map
 
 
 
 -- READING DATA
 
 
-get : Config -> Path -> Task Error Encode.Value
+get : Config -> Path -> Maybe Query -> Task Error Snapshot
 get =
     Native.Firebase.get
-
-
-getList : Config -> Path -> Query -> Task Error (List ( Key, Encode.Value ))
-getList =
-    Native.Firebase.getList
 
 
 
 -- SUBSCRIBING TO DATA
 
 
-listen : Config -> Path -> Event -> (Encode.Value -> Maybe Key -> Task Never ()) -> Task Never ()
+listen :
+    Config
+    -> Path
+    -> Maybe Query
+    -> Event
+    -> (Snapshot -> Maybe Key -> Task Never ())
+    -> Task Never ()
 listen =
     Native.Firebase.listen
 
 
-stopListening : Config -> Path -> Event -> Task Never ()
+stopListening : Config -> Path -> Event -> Maybe Query -> Task Never ()
 stopListening =
     Native.Firebase.stopListening
+
+
+
+-- PROCESSING SNAPSHOTS
+
+
+snapshotToKey : Snapshot -> Key
+snapshotToKey =
+    Native.Firebase.snapshotToKey
+
+
+snapshotToValue : Snapshot -> Maybe Value
+snapshotToValue =
+    Native.Firebase.snapshotToValue
+
+
+snapshotToList : Snapshot -> List Snapshot
+snapshotToList =
+    Native.Firebase.snapshotToList

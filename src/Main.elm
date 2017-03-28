@@ -16,8 +16,8 @@ type alias Model =
 
 type Msg
     = RequestUsers
-    | UserRequestSucceeded (Result Firebase.Error (List ( Firebase.Key, Encode.Value )))
-    | UsersChanged Encode.Value
+    | UserRequestSucceeded (Result Firebase.Error (List Firebase.KeyValue))
+    | UsersChanged (Maybe Encode.Value)
 
 
 config : Firebase.Config
@@ -67,7 +67,7 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         RequestUsers ->
-            model ! [ Database.getList config UserRequestSucceeded "users" (Firebase.OrderByKey Firebase.NoFilter Firebase.NoLimit) ]
+            model ! [ Database.getList config UserRequestSucceeded "users" (Firebase.OrderByValue Firebase.NoFilter Firebase.NoLimit) ]
 
         UserRequestSucceeded result ->
             let
@@ -84,12 +84,17 @@ update msg model =
                         { model | error = Just error, users = [] } ! []
 
         UsersChanged value ->
-            case (decodeUsers value) of
-                Ok value ->
-                    { model | error = Nothing, users = value } ! []
+            case value of
+                Just value ->
+                    case (decodeUsers value) of
+                        Ok value ->
+                            { model | error = Nothing, users = value } ! []
 
-                Err error ->
-                    { model | error = Just error, users = [] } ! []
+                        Err error ->
+                            { model | error = Just error, users = [] } ! []
+
+                Nothing ->
+                    { model | error = Nothing, users = [] } ! []
 
 
 subscriptions : Model -> Sub Msg
