@@ -67,7 +67,10 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         RequestUsers ->
-            model ! [ Database.getList config UserRequestSucceeded "users" (Firebase.OrderByValue Firebase.NoFilter Firebase.NoLimit) ]
+            model
+                ! [ Database.getList "users" (Firebase.OrderByValue Firebase.NoFilter Firebase.NoLimit)
+                        |> Database.attempt config UserRequestSucceeded
+                  ]
 
         UserRequestSucceeded result ->
             let
@@ -99,4 +102,4 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [ Database.changes config UsersChanged "users" ]
+    Sub.batch [ Database.changes config "users" UsersChanged ]

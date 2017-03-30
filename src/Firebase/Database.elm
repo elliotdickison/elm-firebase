@@ -1,7 +1,8 @@
 effect module Firebase.Database
-    where { command = MyCmd, subscription = MySub }
+    where { subscription = MySub }
     exposing
-        ( set
+        ( attempt
+        , set
         , get
         , getList
         , changes
@@ -24,44 +25,35 @@ import Json.Encode as Encode exposing (Value)
 
 -- TODO: get rid of "name" in the config and update the native "getDatabase"
 -- function to diff apps based on the database URL
--- TODO: Think more about argument order... may make sense to have path go
--- first (or second, after config)
 -- TODO: Consider including encoders/decoders in the API to simplify boilerplate
 -- on the user end
 -- TODO: wrap up the list APIs into a single listChanges function that
 -- implements the listItem functions under the hood (which basically creates a
 -- streaming API w/ much better performance)
--- set : Config -> (Result Error Value -> msg) -> Path -> Value -> Cmd msg
--- map : Config -> (Result Error (Maybe Value) -> msg) -> Path -> (Maybe Value -> Maybe Value) -> Cmd msg
--- merge : Config -> (Result Error Value -> msg) -> Path -> Value -> Cmd msg
--- remove : Config -> (Result Error () -> msg) -> Path -> Cmd msg
--- create : Config -> (Result Error Key -> msg) -> Path -> Maybe Value -> Cmd msg
--- get : Config -> (Result Error (Maybe Value) -> msg) -> Path -> Cmd msg
--- getList : Config -> (Result Error (List KeyValue) -> msg) -> Path -> Query -> Cmd msg
--- changes : Config -> (Value -> msg) -> Path -> Sub msg
--- listChanges : Config -> (List KeyValue -> msg) -> Path -> Query -> Sub msg
--- listItemChanges : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Query -> Sub msg
--- listItemAdditions : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Query -> Sub msg
--- listItemMoves : Config -> (KeyValue -> Maybe Key -> msg) -> Path -> Query -> Sub msg
--- listItemRemovals : Config -> (KeyValue -> msg) -> Path -> Query -> Sub msg
+-- set : Config -> Path -> (Result Error Value -> msg) -> Value -> Cmd msg
+-- map : Config -> Path -> (Result Error (Maybe Value) -> msg) -> (Maybe Value -> Maybe Value) -> Cmd msg
+-- merge : Config -> Path -> (Result Error Value -> msg) -> Value -> Cmd msg
+-- remove : Config -> Path -> (Result Error () -> msg) -> Cmd msg
+-- create : Config -> Path -> (Result Error Key -> msg) -> Maybe Value -> Cmd msg
+-- get : Config -> Path -> (Result Error (Maybe Value) -> msg) -> Cmd msg
+-- getList : Config -> Path -> (Result Error (List KeyValue) -> msg) -> Query -> Cmd msg
+-- changes : Config -> Path -> (Value -> msg) -> Sub msg
+-- listChanges : Config -> Path -> (List KeyValue -> msg) -> Query -> Sub msg
+-- listItemChanges : Config -> Path -> (KeyValue -> Maybe Key -> msg) -> Query -> Sub msg
+-- listItemAdditions : Config -> Path -> (KeyValue -> Maybe Key -> msg) -> Query -> Sub msg
+-- listItemMoves : Config -> Path -> (KeyValue -> Maybe Key -> msg) -> Query -> Sub msg
+-- listItemRemovals : Config -> Path -> (KeyValue -> msg) -> Query -> Sub msg
 
 
-type alias EventSignature =
+type alias SubSignature =
     ( Config, Path, Maybe Query, LowLevel.Event )
 
 
-type MyCmd msg
-    = Set Config (Result Error Value -> msg) Path Value
-    | Map Config (Result Error (Maybe Value) -> msg) Path (Maybe Value -> Maybe Value)
-    | Get Config (Result Error (Maybe Value) -> msg) Path
-    | GetList Config (Result Error (List KeyValue) -> msg) Path Query
-
-
 type MySub msg
-    = ValueSub EventSignature (Maybe Value -> msg)
-    | ListSub EventSignature (List KeyValue -> msg)
-    | ListItemSub EventSignature (KeyValue -> msg)
-    | ListItemAndPrevKeySub EventSignature (KeyValue -> Maybe Key -> msg)
+    = ValueSub SubSignature (Maybe Value -> msg)
+    | ListSub SubSignature (List KeyValue -> msg)
+    | ListItemSub SubSignature (KeyValue -> msg)
+    | ListItemAndPrevKeySub SubSignature (KeyValue -> Maybe Key -> msg)
 
 
 type alias State msg =
@@ -69,56 +61,49 @@ type alias State msg =
 
 
 type Msg
-    = SubResponse EventSignature LowLevel.Snapshot (Maybe Key)
-    | NoOp
+    = SubResponse SubSignature LowLevel.Snapshot (Maybe Key)
 
 
 
 -- API
 
 
-set :
-    Config
-    -> (Result Error Value -> msg)
-    -> Path
-    -> Value
-    -> Cmd msg
-set config toMsg path value =
-    command (Set config toMsg path value)
+attempt : Config -> (Result x a -> msg) -> (Config -> Task x a) -> Cmd msg
+attempt config toMsg toTask =
+    Task.attempt toMsg (toTask config)
 
 
-map :
-    Config
-    -> (Result Error (Maybe Value) -> msg)
-    -> Path
-    -> (Maybe Value -> Maybe Value)
-    -> Cmd msg
-map config toMsg path func =
-    command (Map config toMsg path func)
+set : Path -> Value -> Config -> Task Error Value
+set path value config =
+    LowLevel.set config path value
+        |> Task.map (\_ -> value)
 
 
-get : Config -> (Result Error (Maybe Value) -> msg) -> Path -> Cmd msg
-get config toMsg path =
-    command (Get config toMsg path)
+map : Path -> (Maybe Value -> Maybe Value) -> Config -> Task Error (Maybe Value)
+map path func config =
+    LowLevel.map config path func
+        |> Task.map LowLevel.snapshotToValue
 
 
-getList :
-    Config
-    -> (Result Error (List KeyValue) -> msg)
-    -> Path
-    -> Query
-    -> Cmd msg
-getList config toMsg path query =
-    command (GetList config toMsg path query)
+get : Path -> Config -> Task Error (Maybe Value)
+get path config =
+    LowLevel.get config path Nothing
+        |> Task.map LowLevel.snapshotToValue
 
 
-changes : Config -> (Maybe Value -> msg) -> Path -> Sub msg
-changes config toMsg path =
+getList : Path -> Query -> Config -> Task Error (List KeyValue)
+getList path query config =
+    LowLevel.get config path (Just query)
+        |> Task.map snapshotToKeyValueList
+
+
+changes : Config -> Path -> (Maybe Value -> msg) -> Sub msg
+changes config path toMsg =
     subscription (ValueSub ( config, path, Nothing, LowLevel.Change ) toMsg)
 
 
-listChanges : Config -> (List KeyValue -> msg) -> Path -> Query -> Sub msg
-listChanges config toMsg path query =
+listChanges : Config -> Path -> Query -> (List KeyValue -> msg) -> Sub msg
+listChanges config path query toMsg =
     subscription (ListSub ( config, path, Just query, LowLevel.Change ) toMsg)
 
 
@@ -126,8 +111,8 @@ listChanges config toMsg path query =
 -- HELPERS
 
 
-getEventSignature : MySub msg -> EventSignature
-getEventSignature sub =
+getSubSignature : MySub msg -> SubSignature
+getSubSignature sub =
     case sub of
         ValueSub signature _ ->
             signature
@@ -142,11 +127,11 @@ getEventSignature sub =
             signature
 
 
-diffEventSignatures :
-    List EventSignature
-    -> List EventSignature
-    -> List EventSignature
-diffEventSignatures a b =
+diffSubSignatures :
+    List SubSignature
+    -> List SubSignature
+    -> List SubSignature
+diffSubSignatures a b =
     List.foldl
         (\signature uniqueList ->
             let
@@ -162,7 +147,7 @@ diffEventSignatures a b =
         b
 
 
-listen : Platform.Router msg Msg -> EventSignature -> Task Never ()
+listen : Platform.Router msg Msg -> SubSignature -> Task Never ()
 listen router signature =
     let
         handler snapshot prevKey =
@@ -174,7 +159,7 @@ listen router signature =
         LowLevel.listen config path query event handler
 
 
-stopListening : EventSignature -> Task Never ()
+stopListening : SubSignature -> Task Never ()
 stopListening ( config, path, query, event ) =
     LowLevel.stopListening config path event query
 
@@ -193,13 +178,13 @@ snapshotToKeyValueList snapshot =
         |> List.filterMap snapshotToKeyValue
 
 
-handleSubResponse :
+handleSub :
     Platform.Router msg Msg
     -> LowLevel.Snapshot
     -> Maybe Key
     -> MySub msg
     -> Task Never ()
-handleSubResponse router snapshot prevKey sub =
+handleSub router snapshot prevKey sub =
     case sub of
         ValueSub _ toMsg ->
             Platform.sendToApp router (snapshot |> LowLevel.snapshotToValue |> toMsg)
@@ -213,7 +198,7 @@ handleSubResponse router snapshot prevKey sub =
                     Platform.sendToApp router (toMsg keyValue)
 
                 Nothing ->
-                    Platform.sendToSelf router NoOp
+                    Task.succeed ()
 
         ListItemAndPrevKeySub _ toMsg ->
             case snapshotToKeyValue snapshot of
@@ -221,34 +206,7 @@ handleSubResponse router snapshot prevKey sub =
                     Platform.sendToApp router (toMsg keyValue prevKey)
 
                 Nothing ->
-                    Platform.sendToSelf router NoOp
-
-
-runCmd : Platform.Router msg Msg -> MyCmd msg -> Task Never ()
-runCmd router cmd =
-    case cmd of
-        Set config toMsg path value ->
-            LowLevel.set config path value
-                |> Task.andThen (\_ -> value |> Ok |> toMsg |> Platform.sendToApp router)
-                |> Task.onError (Err >> toMsg >> Platform.sendToApp router)
-
-        Map config toMsg path func ->
-            LowLevel.map config path func
-                |> Task.map LowLevel.snapshotToValue
-                |> Task.andThen (Ok >> toMsg >> Platform.sendToApp router)
-                |> Task.onError (Err >> toMsg >> Platform.sendToApp router)
-
-        Get config toMsg path ->
-            LowLevel.get config path Nothing
-                |> Task.map LowLevel.snapshotToValue
-                |> Task.andThen (Ok >> toMsg >> Platform.sendToApp router)
-                |> Task.onError (Err >> toMsg >> Platform.sendToApp router)
-
-        GetList config toMsg path query ->
-            LowLevel.get config path (Just query)
-                |> Task.map snapshotToKeyValueList
-                |> Task.andThen (Ok >> toMsg >> Platform.sendToApp router)
-                |> Task.onError (Err >> toMsg >> Platform.sendToApp router)
+                    Task.succeed ()
 
 
 
@@ -263,22 +221,6 @@ runCmd router cmd =
 init : Task Never (State msg)
 init =
     Task.succeed []
-
-
-cmdMap : (a -> b) -> MyCmd a -> MyCmd b
-cmdMap f cmd =
-    case cmd of
-        Set config toMsg path value ->
-            Set config (toMsg >> f) path value
-
-        Map config toMsg path func ->
-            Map config (toMsg >> f) path func
-
-        Get config toMsg path ->
-            Get config (toMsg >> f) path
-
-        GetList config toMsg path query ->
-            GetList config (toMsg >> f) path query
 
 
 subMap : (a -> b) -> MySub a -> MySub b
@@ -299,36 +241,29 @@ subMap f sub =
 
 onEffects :
     Platform.Router msg Msg
-    -> List (MyCmd msg)
     -> List (MySub msg)
     -> State msg
     -> Task Never (State msg)
-onEffects router cmds subs state =
+onEffects router subs state =
     let
         signatures =
-            List.map getEventSignature state
+            List.map getSubSignature state
 
         nextSignatures =
-            List.map getEventSignature subs
+            List.map getSubSignature subs
 
         stopListeners =
-            diffEventSignatures nextSignatures signatures
+            diffSubSignatures nextSignatures signatures
                 |> List.map stopListening
                 |> Task.sequence
 
         startListeners =
-            diffEventSignatures signatures nextSignatures
+            diffSubSignatures signatures nextSignatures
                 |> List.map (listen router)
-                |> Task.sequence
-
-        runCmds =
-            cmds
-                |> List.map (runCmd router)
                 |> Task.sequence
     in
         stopListeners
             &> startListeners
-            &> runCmds
             &> Task.succeed subs
 
 
@@ -341,10 +276,7 @@ onSelfMsg router selfMsg state =
     case selfMsg of
         SubResponse signature snapshot prevKey ->
             state
-                |> List.filter (getEventSignature >> (==) signature)
-                |> List.map (handleSubResponse router snapshot prevKey)
+                |> List.filter (getSubSignature >> (==) signature)
+                |> List.map (handleSub router snapshot prevKey)
                 |> Task.sequence
                 |> Task.andThen (\_ -> Task.succeed state)
-
-        NoOp ->
-            Task.succeed state
