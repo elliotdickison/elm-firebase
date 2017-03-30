@@ -19,6 +19,7 @@ import Firebase
         , Error
         )
 import Firebase.Database.LowLevel as LowLevel
+import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
 
@@ -61,7 +62,7 @@ type alias State msg =
 
 
 type Msg
-    = SubResponse SubSignature LowLevel.Snapshot (Maybe Key)
+    = SubResponse SubSignature Snapshot (Maybe Key)
 
 
 
@@ -82,19 +83,19 @@ set path value config =
 map : Path -> (Maybe Value -> Maybe Value) -> Config -> Task Error (Maybe Value)
 map path func config =
     LowLevel.map config path func
-        |> Task.map LowLevel.snapshotToValue
+        |> Task.map Snapshot.toValue
 
 
 get : Path -> Config -> Task Error (Maybe Value)
 get path config =
     LowLevel.get config path Nothing
-        |> Task.map LowLevel.snapshotToValue
+        |> Task.map Snapshot.toValue
 
 
 getList : Path -> Query -> Config -> Task Error (List KeyValue)
 getList path query config =
     LowLevel.get config path (Just query)
-        |> Task.map snapshotToKeyValueList
+        |> Task.map Snapshot.toKeyValueList
 
 
 changes : Config -> Path -> (Maybe Value -> msg) -> Sub msg
@@ -164,36 +165,22 @@ stopListening ( config, path, query, event ) =
     LowLevel.stopListening config path event query
 
 
-snapshotToKeyValue : LowLevel.Snapshot -> Maybe KeyValue
-snapshotToKeyValue snapshot =
-    snapshot
-        |> LowLevel.snapshotToValue
-        |> Maybe.map (\value -> ( LowLevel.snapshotToKey snapshot, value ))
-
-
-snapshotToKeyValueList : LowLevel.Snapshot -> List KeyValue
-snapshotToKeyValueList snapshot =
-    snapshot
-        |> LowLevel.snapshotToList
-        |> List.filterMap snapshotToKeyValue
-
-
 handleSub :
     Platform.Router msg Msg
-    -> LowLevel.Snapshot
+    -> Snapshot
     -> Maybe Key
     -> MySub msg
     -> Task Never ()
 handleSub router snapshot prevKey sub =
     case sub of
         ValueSub _ toMsg ->
-            Platform.sendToApp router (snapshot |> LowLevel.snapshotToValue |> toMsg)
+            Platform.sendToApp router (snapshot |> Snapshot.toValue |> toMsg)
 
         ListSub _ toMsg ->
-            Platform.sendToApp router (snapshot |> snapshotToKeyValueList |> toMsg)
+            Platform.sendToApp router (snapshot |> Snapshot.toKeyValueList |> toMsg)
 
         ListItemSub _ toMsg ->
-            case snapshotToKeyValue snapshot of
+            case Snapshot.toKeyValue snapshot of
                 Just keyValue ->
                     Platform.sendToApp router (toMsg keyValue)
 
@@ -201,7 +188,7 @@ handleSub router snapshot prevKey sub =
                     Task.succeed ()
 
         ListItemAndPrevKeySub _ toMsg ->
-            case snapshotToKeyValue snapshot of
+            case Snapshot.toKeyValue snapshot of
                 Just keyValue ->
                     Platform.sendToApp router (toMsg keyValue prevKey)
 

@@ -1,15 +1,11 @@
 module Firebase.Database.LowLevel
     exposing
-        ( Snapshot
-        , Event(..)
+        ( Event(..)
         , set
         , map
         , get
         , listen
         , stopListening
-        , snapshotToKey
-        , snapshotToValue
-        , snapshotToList
         )
 
 import Firebase
@@ -21,13 +17,10 @@ import Firebase
         , KeyValue
         , Error
         )
+import Firebase.Database.Snapshot exposing (Snapshot)
 import Native.Firebase
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
-
-
-type Snapshot
-    = Snapshot
 
 
 type Event
@@ -79,22 +72,3 @@ listen =
 stopListening : Config -> Path -> Event -> Maybe Query -> Task Never ()
 stopListening =
     Native.Firebase.stopListening
-
-
-
--- PROCESSING SNAPSHOTS
-
-
-snapshotToKey : Snapshot -> Key
-snapshotToKey =
-    Native.Firebase.snapshotToKey
-
-
-snapshotToValue : Snapshot -> Maybe Value
-snapshotToValue =
-    Native.Firebase.snapshotToValue
-
-
-snapshotToList : Snapshot -> List Snapshot
-snapshotToList =
-    Native.Firebase.snapshotToList
