@@ -10,48 +10,42 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
   // TODO: Convert firebase permission warnings to errors
 
   var firebase = window.firebase
-  var scheduler = _elm_lang$core$Native_Scheduler
-  var Nothing = _elm_lang$core$Maybe$Nothing
-  var Just = _elm_lang$core$Maybe$Just
-  var Utils = _elm_lang$core$Native_Utils
 
-  var getApp = (function() {
-    var apps = {}
-    return function(config) {
-      if (!apps[config.name]) {
-        apps[config.name] =
-          firebase.initializeApp(mapConfigIn(config), config.name)
-      }
-      return apps[config.name]
+  function shallowEq(a, b) {
+    var keys = Object.keys(a)
+    if (keys.length !== Object.keys(b).length) {
+      return false
+    } else {
+      return keys.reduce(function(eq, key) {
+        return a[key] === b[key] ? eq : false
+      }, true)
     }
-  }())
-
-  function getDatabase(config) {
-    return getApp(config).database()
   }
 
-  function getRef(config, path, maybeQuery) {
-    var refWithoutQuery = getDatabase(config).ref(path)
+  function getRef(app, path, maybeQuery) {
+    var refWithoutQuery = app.database().ref(path)
     return maybeQuery.ctor === "Just"
       ? applyQueryToRef(refWithoutQuery, maybeQuery._0)
       : refWithoutQuery
   }
 
   function applyQueryToRef(ref, query) {
+    var refWithOrder
+    var refWithFilter
     switch (query.ctor) {
     case "OrderByKey": {
-      const refWithOrder = ref.orderByKey()
-      const refWithFilter = applyQueryFilterToRef(refWithOrder, query._0)
+      refWithOrder = ref.orderByKey()
+      refWithFilter = applyQueryFilterToRef(refWithOrder, query._0)
       return applyQueryLimitToRef(refWithFilter, query._1)
     }
     case "OrderByChild": {
-      const refWithOrder = ref.orderByChild(query._0)
-      const refWithFilter = applyQueryFilterToRef(refWithOrder, query._1)
+      refWithOrder = ref.orderByChild(query._0)
+      refWithFilter = applyQueryFilterToRef(refWithOrder, query._1)
       return applyQueryLimitToRef(refWithFilter, query._2)
     }
     case "OrderByValue": {
-      const refWithOrder = ref.orderByValue()
-      const refWithFilter = applyQueryFilterToRef(refWithOrder, query._0)
+      refWithOrder = ref.orderByValue()
+      refWithFilter = applyQueryFilterToRef(refWithOrder, query._0)
       return applyQueryLimitToRef(refWithFilter, query._1)
     }
     }
@@ -93,6 +87,8 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     switch (error.code) {
     case "PERMISSION_DENIED":
       return { ctor: "PermissionDenied" }
+    case "UNEXPECTED_VALUE":
+      return { ctor: "UnexpectedValue", _0: error.message }
     default:
       return { ctor: "OtherError", _0: error.code }
     }
@@ -122,45 +118,82 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
   }
 
   /**
+   * INIT
+   */
+
+  var getApp = (function() {
+    var appList = []
+    return function(config) {
+      var newApp
+      var existingApp = appList.filter(function(app) {
+        return shallowEq(app.config, config)
+      })[0]
+      if (existingApp) {
+        return existingApp.instance
+      } else {
+        newApp = firebase.initializeApp(mapConfigIn(config))
+        appList.push({ config: config, instance: newApp })
+        return newApp
+      }
+    }
+  }())
+
+  /**
    * WRITING DATA
    */
 
-  function set(config, path, data) {
-    return scheduler.nativeBinding(function(callback) {
+  function set(app, path, value) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var onComplete = function(error) {
         if (error) {
-          callback(scheduler.fail(mapErrorOut(error)))
+          callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
         } else {
-          callback(scheduler.succeed())
+          callback(_elm_lang$core$Native_Scheduler.succeed())
         }
       }
       try {
-        getRef(config, path, Nothing).set(data, onComplete)
+        getRef(app, path, _elm_lang$core$Maybe$Nothing).set(value, onComplete)
       } catch (error) {
-        callback(scheduler.fail(mapErrorOut(error)))
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
     })
   }
 
-  function map(config, path, func) {
-    return scheduler.nativeBinding(function(callback) {
+  function push(app, path, maybeValue) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
+      try {
+        var value = maybeValue.ctor === "Just" ? maybeValue._0 : undefined
+        var key = getRef(app, path, _elm_lang$core$Maybe$Nothing).push(value)
+        callback(_elm_lang$core$Native_Scheduler.succeed(key))
+      } catch (error) {
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
+      }
+    })
+  }
+
+  function map(app, path, func) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var transactionUpdate = function(value) {
-        var mappedValue = func(value === null ? Nothing : Just(value))
-        return mappedValue.ctor === "Just"
-          ? mappedValue._0
-          : undefined
+        var nextValue = func(value === null ? _elm_lang$core$Maybe$Nothing : _elm_lang$core$Maybe$Just(value))
+        if (nextValue.ctor === "Err") {
+          throw { code: "UNEXPECTED_VALUE", message: nextValue._0 }
+        } else if (nextValue.ctor === "Ok") {
+          return nextValue._0.ctor === "Just"
+            ? nextValue._0._0
+            : null
+        }
       }
       var onComplete = function(error, committed, snapshot) {
         if (error) {
-          callback(scheduler.fail(mapErrorOut(error)))
+          callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
         } else {
-          callback(scheduler.succeed(snapshot))
+          callback(_elm_lang$core$Native_Scheduler.succeed(snapshot))
         }
       }
       try {
-        getRef(config, path, Nothing).transaction(transactionUpdate, onComplete)
+        getRef(app, path, _elm_lang$core$Maybe$Nothing).transaction(transactionUpdate, onComplete)
       } catch (error) {
-        callback(scheduler.fail(mapErrorOut(error)))
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
     })
   }
@@ -169,19 +202,19 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
    * READING DATA
    */
 
-  function get(config, path, maybeQuery) {
-    return scheduler.nativeBinding(function(callback) {
+  function get(app, path, maybeQuery) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var successCallback = function(snapshot) {
-        callback(scheduler.succeed(snapshot))
+        callback(_elm_lang$core$Native_Scheduler.succeed(snapshot))
       }
       var failureCallback = function(error) {
-        callback(scheduler.fail(mapErrorOut(error)))
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
       try {
-        getRef(config, path, maybeQuery)
+        getRef(app, path, maybeQuery)
           .once("value", successCallback, failureCallback)
       } catch (error) {
-        callback(scheduler.fail(mapErrorOut(error)))
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
     })
   }
@@ -190,27 +223,27 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
    * SUBSCRIBING TO DATA
    */
 
-  function listen(config, path, maybeQuery, event, handler) {
-    return scheduler.nativeBinding(function(callback) {
+  function listen(app, path, maybeQuery, event, handler) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var mappedEvent = mapEventIn(event)
-      getRef(config, path, maybeQuery).on(mappedEvent, function(snapshot, prevKey) {
-        var maybePrevKey = prevKey === null ? Nothing : Just(prevKey)
-        scheduler.rawSpawn(A2(handler, snapshot, maybePrevKey))
+      getRef(app, path, maybeQuery).on(mappedEvent, function(snapshot, prevKey) {
+        var maybePrevKey = prevKey === null ? _elm_lang$core$Maybe$Nothing : _elm_lang$core$Maybe$Just(prevKey)
+        _elm_lang$core$Native_Scheduler.rawSpawn(A2(handler, snapshot, maybePrevKey))
       })
-      callback(scheduler.succeed())
+      callback(_elm_lang$core$Native_Scheduler.succeed())
     })
   }
 
-  function stopListening(config, path, event, maybeQuery) {
-    return scheduler.nativeBinding(function(callback) {
+  function stopListening(app, path, maybeQuery, event) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var mappedEvent = mapEventIn(event)
-      getRef(config, path, maybeQuery).off(mappedEvent)
+      getRef(app, path, maybeQuery).off(mappedEvent)
       callback(schedule.succeed())
     })
   }
 
   /**
-   * PROCESSING SNAPSHOTS
+   * SNAPSHOT
    */
 
   function snapshotToKey(snapshot) {
@@ -219,7 +252,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
   function snapshotToValue(snapshot) {
     var value = snapshot.val()
-    return value === null ? Nothing : Just(value)
+    return value === null ? _elm_lang$core$Maybe$Nothing : _elm_lang$core$Maybe$Just(value)
   }
 
   function snapshotToList(snapshot) {
@@ -231,7 +264,9 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
   }
 
   return {
+    getApp: getApp,
     set: F3(set),
+    push: F3(push),
     map: F3(map),
     get: F3(get),
     listen: F5(listen),

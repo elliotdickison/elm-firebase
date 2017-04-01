@@ -8,7 +8,7 @@ module Firebase.Database.Snapshot
         , toKeyValueList
         )
 
-import Firebase exposing (Key, KeyValue)
+import Native.Firebase
 import Json.Encode as Encode exposing (Value)
 
 
@@ -16,7 +16,7 @@ type Snapshot
     = Snapshot
 
 
-toKey : Snapshot -> Key
+toKey : Snapshot -> String
 toKey =
     Native.Firebase.snapshotToKey
 
@@ -31,14 +31,14 @@ toList =
     Native.Firebase.snapshotToList
 
 
-toKeyValue : Snapshot -> Maybe KeyValue
+toKeyValue : Snapshot -> Maybe ( String, Value )
 toKeyValue snapshot =
     snapshot
         |> toValue
         |> Maybe.map (\value -> ( toKey snapshot, value ))
 
 
-toKeyValueList : Snapshot -> List KeyValue
+toKeyValueList : Snapshot -> List ( String, Value )
 toKeyValueList snapshot =
     snapshot
         |> toList

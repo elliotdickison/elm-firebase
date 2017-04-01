@@ -1,60 +1,110 @@
 effect module Firebase.Database
     where { subscription = MySub }
     exposing
-        ( attempt
+        ( Error(..)
+        , Query(..)
+        , QueryFilter(..)
+        , QueryLimit(..)
+        , attempt
         , set
         , get
         , getList
-        , changes
-        , listChanges
+        , value
+        , list
         )
 
-import Firebase
-    exposing
-        ( Config
-        , Path
-        , Key
-        , KeyValue
-        , Query
-        , Error
-        )
-import Firebase.Database.LowLevel as LowLevel
+import Firebase exposing (App)
 import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
+import Result.Extra
 
 
--- TODO: get rid of "name" in the config and update the native "getDatabase"
--- function to diff apps based on the database URL
+resultToTask : Result x a -> Task x a
+resultToTask result =
+    case result of
+        Ok a ->
+            Task.succeed a
+
+        Err x ->
+            Task.fail x
+
+
+
+--andThenDecode : (a -> Result x b) -> Task x a -> Task x b
+--andThenDecode decode =
+--    Task.andThen (decode >> Result.Extra.toTask)
+--andThenDecodeMaybe : (a -> Result x b) -> Task x a -> Task x b
+--andThenDecodeMaybe decode =
+--    Task.andThen (decode >> Result.Extra.toTask)
 -- TODO: Consider including encoders/decoders in the API to simplify boilerplate
--- on the user end
+-- on the user end. Also, use the Encoder/Decoder types
 -- TODO: wrap up the list APIs into a single listChanges function that
 -- implements the listItem functions under the hood (which basically creates a
 -- streaming API w/ much better performance)
--- set : Config -> Path -> (Result Error Value -> msg) -> Value -> Cmd msg
--- map : Config -> Path -> (Result Error (Maybe Value) -> msg) -> (Maybe Value -> Maybe Value) -> Cmd msg
--- merge : Config -> Path -> (Result Error Value -> msg) -> Value -> Cmd msg
--- remove : Config -> Path -> (Result Error () -> msg) -> Cmd msg
--- create : Config -> Path -> (Result Error Key -> msg) -> Maybe Value -> Cmd msg
--- get : Config -> Path -> (Result Error (Maybe Value) -> msg) -> Cmd msg
--- getList : Config -> Path -> (Result Error (List KeyValue) -> msg) -> Query -> Cmd msg
--- changes : Config -> Path -> (Value -> msg) -> Sub msg
--- listChanges : Config -> Path -> (List KeyValue -> msg) -> Query -> Sub msg
--- listItemChanges : Config -> Path -> (KeyValue -> Maybe Key -> msg) -> Query -> Sub msg
--- listItemAdditions : Config -> Path -> (KeyValue -> Maybe Key -> msg) -> Query -> Sub msg
--- listItemMoves : Config -> Path -> (KeyValue -> Maybe Key -> msg) -> Query -> Sub msg
--- listItemRemovals : Config -> Path -> (KeyValue -> msg) -> Query -> Sub msg
+-- set : App -> String -> (Result Error () -> msg) -> Value -> Cmd msg
+-- map : App -> String -> (Result Error (Maybe Value) -> msg) -> (Maybe Value -> Maybe Value) -> Cmd msg
+-- merge : App -> String -> (Result Error Value -> msg) -> Value -> Cmd msg
+-- remove : App -> String -> (Result Error () -> msg) -> Cmd msg
+-- push : App -> String -> (Result Error Key -> msg) -> Maybe Value -> Cmd msg
+-- get : App -> String -> (Result Error (Maybe Value) -> msg) -> Cmd msg
+-- getList : App -> String -> (Result Error (List (String, Value)) -> msg) -> Query -> Cmd msg
+-- value : App -> String -> (Value -> msg) -> Sub msg
+-- list : App -> String -> (List (String, Value) -> msg) -> Query -> Sub msg
+-- stream : App -> String -> (List (String, Value) -> msg) -> Query -> Sub msg
+-- listItemChanges : App -> String -> ((String, Value) -> Maybe Key -> msg) -> Query -> Sub msg
+-- listItemAdditions : App -> String -> ((String, Value) -> Maybe Key -> msg) -> Query -> Sub msg
+-- listItemMoves : App -> String -> ((String, Value) -> Maybe Key -> msg) -> Query -> Sub msg
+-- listItemRemovals : App -> String -> ((String, Value) -> msg) -> Query -> Sub msg
+
+
+type Event
+    = Change
+    | ChildAdd
+    | ChildChange
+    | ChildRemove
+    | ChildMove
+
+
+
+-- TODO: Replace "OtherError" w/ actual possible errors
+
+
+type Error
+    = PermissionDenied
+    | UnexpectedValue String
+    | OtherError String
+
+
+type Query
+    = OrderByKey QueryFilter QueryLimit
+    | OrderByValue QueryFilter QueryLimit
+    | OrderByChild String QueryFilter QueryLimit
+
+
+type QueryFilter
+    = NoFilter
+    | Matching Value
+    | StartingAt Value
+    | EndingAt Value
+    | Between Value Value
+
+
+type QueryLimit
+    = NoLimit
+    | First Int
+    | Last Int
 
 
 type alias SubSignature =
-    ( Config, Path, Maybe Query, LowLevel.Event )
+    ( App, String, Maybe Query, Event )
 
 
 type MySub msg
     = ValueSub SubSignature (Maybe Value -> msg)
-    | ListSub SubSignature (List KeyValue -> msg)
-    | ListItemSub SubSignature (KeyValue -> msg)
-    | ListItemAndPrevKeySub SubSignature (KeyValue -> Maybe Key -> msg)
+    | ListSub SubSignature (List ( String, Value ) -> msg)
+    | ListItemSub SubSignature (( String, Value ) -> msg)
+    | ListItemAndPrevKeySub SubSignature (( String, Value ) -> Maybe String -> msg)
 
 
 type alias State msg =
@@ -62,50 +112,91 @@ type alias State msg =
 
 
 type Msg
-    = SubResponse SubSignature Snapshot (Maybe Key)
+    = SubResponse SubSignature Snapshot (Maybe String)
 
 
 
 -- API
 
 
-attempt : Config -> (Result x a -> msg) -> (Config -> Task x a) -> Cmd msg
-attempt config toMsg toTask =
-    Task.attempt toMsg (toTask config)
+attempt : App -> (Result x a -> msg) -> (App -> Task x a) -> Cmd msg
+attempt app toMsg toTask =
+    Task.attempt toMsg (toTask app)
 
 
-set : Path -> Value -> Config -> Task Error Value
-set path value config =
-    LowLevel.set config path value
-        |> Task.map (\_ -> value)
+set : String -> Value -> App -> Task Error ()
+set path value app =
+    Native.Firebase.set app path value
 
 
-map : Path -> (Maybe Value -> Maybe Value) -> Config -> Task Error (Maybe Value)
-map path func config =
-    LowLevel.map config path func
+push : String -> Maybe Value -> App -> Task Error String
+push path value app =
+    Native.Firebase.push app path value
+
+
+map : (Value -> Result String a) -> (a -> Value) -> String -> (Maybe a -> Maybe a) -> App -> Task Error (Maybe a)
+map decode encode path func app =
+    Native.Firebase.map app path (mapValue decode encode func)
         |> Task.map Snapshot.toValue
+        |> Task.andThen
+            (\value ->
+                case value of
+                    Just value ->
+                        value
+                            |> decode
+                            |> Result.mapError UnexpectedValue
+                            |> Result.map Just
+                            |> resultToTask
+
+                    Nothing ->
+                        Task.succeed Nothing
+            )
 
 
-get : Path -> Config -> Task Error (Maybe Value)
-get path config =
-    LowLevel.get config path Nothing
+mapValue : (Value -> Result String a) -> (a -> Value) -> (Maybe a -> Maybe a) -> Maybe Value -> Result String (Maybe Value)
+mapValue decode encode func value =
+    case value of
+        Just value ->
+            decode value
+                |> Result.map (Just >> func >> Maybe.map encode)
+
+        Nothing ->
+            Nothing |> func |> Maybe.map encode |> Ok
+
+
+get : (Value -> Result String a) -> String -> App -> Task Error (Maybe a)
+get decode path app =
+    Native.Firebase.get app path Nothing
         |> Task.map Snapshot.toValue
+        |> Task.andThen
+            (\value ->
+                case value of
+                    Just value ->
+                        value
+                            |> decode
+                            |> Result.mapError UnexpectedValue
+                            |> Result.map Just
+                            |> resultToTask
+
+                    Nothing ->
+                        Task.succeed Nothing
+            )
 
 
-getList : Path -> Query -> Config -> Task Error (List KeyValue)
-getList path query config =
-    LowLevel.get config path (Just query)
-        |> Task.map Snapshot.toKeyValueList
+getList : (String -> Value -> Result String a) -> String -> Query -> App -> Task Error (List a)
+getList decode path query app =
+    Native.Firebase.get app path (Just query)
+        |> Task.andThen (Snapshot.toKeyValueList >> (List.map (\( key, value ) -> decode key value)) >> Result.Extra.combine >> Result.mapError UnexpectedValue >> resultToTask)
 
 
-changes : Config -> Path -> (Maybe Value -> msg) -> Sub msg
-changes config path toMsg =
-    subscription (ValueSub ( config, path, Nothing, LowLevel.Change ) toMsg)
+value : App -> String -> (Maybe Value -> msg) -> Sub msg
+value app path toMsg =
+    subscription (ValueSub ( app, path, Nothing, Change ) toMsg)
 
 
-listChanges : Config -> Path -> Query -> (List KeyValue -> msg) -> Sub msg
-listChanges config path query toMsg =
-    subscription (ListSub ( config, path, Just query, LowLevel.Change ) toMsg)
+list : App -> String -> Query -> (List ( String, Value ) -> msg) -> Sub msg
+list app path query toMsg =
+    subscription (ListSub ( app, path, Just query, Change ) toMsg)
 
 
 
@@ -154,21 +245,21 @@ listen router signature =
         handler snapshot prevKey =
             Platform.sendToSelf router (SubResponse signature snapshot prevKey)
 
-        ( config, path, query, event ) =
+        ( app, path, query, event ) =
             signature
     in
-        LowLevel.listen config path query event handler
+        Native.Firebase.listen app path query event handler
 
 
 stopListening : SubSignature -> Task Never ()
-stopListening ( config, path, query, event ) =
-    LowLevel.stopListening config path event query
+stopListening ( app, path, query, event ) =
+    Native.Firebase.stopListening app path query event
 
 
 handleSub :
     Platform.Router msg Msg
     -> Snapshot
-    -> Maybe Key
+    -> Maybe String
     -> MySub msg
     -> Task Never ()
 handleSub router snapshot prevKey sub =

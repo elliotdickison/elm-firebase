@@ -2,10 +2,15 @@ module Main exposing (..)
 
 import Html exposing (Html, div, text, button)
 import Html.Events exposing (onClick)
-import Json.Encode as Encode
+import Json.Encode as Encode exposing (Value)
 import Json.Decode as Decode
 import Firebase
 import Firebase.Database as Database
+    exposing
+        ( Query(..)
+        , QueryFilter(..)
+        , QueryLimit(..)
+        )
 
 
 type alias Model =
@@ -16,22 +21,27 @@ type alias Model =
 
 type Msg
     = RequestUsers
-    | UserRequestSucceeded (Result Firebase.Error (List Firebase.KeyValue))
-    | UsersChanged (Maybe Encode.Value)
+    | UserRequestCompleted (Result Database.Error (List String))
+    | UsersChanged (List ( String, Value ))
 
 
-config : Firebase.Config
-config =
-    { name = "example-app"
-    , apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
-    , authDomain = "elm-firebase.firebaseapp.com"
-    , databaseUrl = "https://elm-firebase.firebaseio.com"
-    , storageBucket = "elm-firebase.appspot.com"
-    , messagingSenderId = "488262915403"
-    }
+firebase : Firebase.App
+firebase =
+    Firebase.getApp
+        { apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
+        , authDomain = "elm-firebase.firebaseapp.com"
+        , databaseUrl = "https://elm-firebase.firebaseio.com"
+        , storageBucket = "elm-firebase.appspot.com"
+        , messagingSenderId = "488262915403"
+        }
 
 
-decodeUsers : Encode.Value -> Result String (List String)
+decodeUser : String -> Value -> Result String String
+decodeUser key value =
+    Decode.decodeValue Decode.string value
+
+
+decodeUsers : Value -> Result String (List String)
 decodeUsers =
     Decode.decodeValue (Decode.list Decode.string)
 
@@ -68,38 +78,22 @@ update msg model =
     case msg of
         RequestUsers ->
             model
-                ! [ Database.getList "users" (Firebase.OrderByValue Firebase.NoFilter Firebase.NoLimit)
-                        |> Database.attempt config UserRequestSucceeded
+                ! [ Database.getList decodeUser "users" (OrderByValue NoFilter NoLimit)
+                        |> Database.attempt firebase UserRequestCompleted
                   ]
 
-        UserRequestSucceeded result ->
-            let
-                decoded =
-                    result
-                        |> Result.mapError toString
-                        |> Result.map (List.map toString)
-            in
-                case decoded of
-                    Ok value ->
-                        { model | error = Nothing, users = value } ! []
+        UserRequestCompleted result ->
+            case result of
+                Ok value ->
+                    { model | error = Nothing, users = value } ! []
 
-                    Err error ->
-                        { model | error = Just error, users = [] } ! []
+                Err error ->
+                    { model | error = Just (toString error), users = [] } ! []
 
         UsersChanged value ->
-            case value of
-                Just value ->
-                    case (decodeUsers value) of
-                        Ok value ->
-                            { model | error = Nothing, users = value } ! []
-
-                        Err error ->
-                            { model | error = Just error, users = [] } ! []
-
-                Nothing ->
-                    { model | error = Nothing, users = [] } ! []
+            { model | error = Nothing, users = value |> List.map toString } ! []
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [ Database.changes config "users" UsersChanged ]
+    Sub.batch [ Database.list firebase "users" (OrderByValue NoFilter NoLimit) UsersChanged ]
