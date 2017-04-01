@@ -24,7 +24,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
   function getRef(app, path, maybeQuery) {
     var refWithoutQuery = app.database().ref(path)
-    return maybeQuery.ctor === "Just"
+    return maybeQuery && maybeQuery.ctor === "Just"
       ? applyQueryToRef(refWithoutQuery, maybeQuery._0)
       : refWithoutQuery
   }
@@ -152,7 +152,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
         }
       }
       try {
-        getRef(app, path, _elm_lang$core$Maybe$Nothing).set(value, onComplete)
+        getRef(app, path).set(value, onComplete)
       } catch (error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
@@ -163,8 +163,19 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       try {
         var value = maybeValue.ctor === "Just" ? maybeValue._0 : undefined
-        var key = getRef(app, path, _elm_lang$core$Maybe$Nothing).push(value)
+        var key = getRef(app, path).push(value)
         callback(_elm_lang$core$Native_Scheduler.succeed(key))
+      } catch (error) {
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
+      }
+    })
+  }
+
+  function remove(app, path) {
+    return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
+      try {
+        getRef(app, path).remove()
+        callback(_elm_lang$core$Native_Scheduler.succeed())
       } catch (error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
@@ -191,7 +202,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
         }
       }
       try {
-        getRef(app, path, _elm_lang$core$Maybe$Nothing).transaction(transactionUpdate, onComplete)
+        getRef(app, path).transaction(transactionUpdate, onComplete)
       } catch (error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
@@ -268,6 +279,7 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
     set: F3(set),
     push: F3(push),
     map: F3(map),
+    remove: F2(remove),
     get: F3(get),
     listen: F5(listen),
     stopListening: F4(stopListening),

@@ -134,6 +134,11 @@ push path value app =
     Native.Firebase.push app path value
 
 
+remove : String -> App -> Task Error ()
+remove path app =
+    Native.Firebase.remove app path
+
+
 map : (Value -> Result String a) -> (a -> Value) -> String -> (Maybe a -> Maybe a) -> App -> Task Error (Maybe a)
 map decode encode path func app =
     Native.Firebase.map app path (mapValue decode encode func)
