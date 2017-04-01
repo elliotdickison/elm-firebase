@@ -13,15 +13,21 @@ import Firebase.Database as Database
         )
 
 
+type alias User =
+    { id : String
+    , name : String
+    }
+
+
 type alias Model =
     { error : Maybe String
-    , users : List String
+    , users : List User
     }
 
 
 type Msg
     = RequestUsers
-    | UserRequestCompleted (Result Database.Error (List String))
+    | UserRequestCompleted (Result Database.Error (List User))
     | UsersChanged (List ( String, Value ))
 
 
@@ -36,14 +42,10 @@ firebase =
         }
 
 
-decodeUser : String -> Value -> Result String String
+decodeUser : String -> Value -> Result String User
 decodeUser key value =
     Decode.decodeValue Decode.string value
-
-
-decodeUsers : Value -> Result String (List String)
-decodeUsers =
-    Decode.decodeValue (Decode.list Decode.string)
+        |> Result.map (User key)
 
 
 main : Program Never Model Msg
@@ -68,7 +70,7 @@ view : Model -> Html Msg
 view model =
     div []
         [ div [] [ text "error: ", model.error |> Maybe.withDefault "" |> text ]
-        , div [] [ text "users: ", model.users |> String.join ", " |> text ]
+        , div [] [ text "users: ", model.users |> List.map toString |> String.join ", " |> text ]
         , button [ onClick RequestUsers ] [ text "Get users!" ]
         ]
 
@@ -91,7 +93,7 @@ update msg model =
                     { model | error = Just (toString error), users = [] } ! []
 
         UsersChanged value ->
-            { model | error = Nothing, users = value |> List.map toString } ! []
+            { model | error = Nothing, users = value |> List.map (\( key, value ) -> User key (toString value)) } ! []
 
 
 subscriptions : Model -> Sub Msg

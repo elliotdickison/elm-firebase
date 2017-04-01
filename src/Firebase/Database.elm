@@ -17,26 +17,11 @@ import Firebase exposing (App)
 import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
+import Json.Extra
 import Result.Extra
+import Task.Extra
 
 
-resultToTask : Result x a -> Task x a
-resultToTask result =
-    case result of
-        Ok a ->
-            Task.succeed a
-
-        Err x ->
-            Task.fail x
-
-
-
---andThenDecode : (a -> Result x b) -> Task x a -> Task x b
---andThenDecode decode =
---    Task.andThen (decode >> Result.Extra.toTask)
---andThenDecodeMaybe : (a -> Result x b) -> Task x a -> Task x b
---andThenDecodeMaybe decode =
---    Task.andThen (decode >> Result.Extra.toTask)
 -- TODO: Consider including encoders/decoders in the API to simplify boilerplate
 -- on the user end. Also, use the Encoder/Decoder types
 -- TODO: wrap up the list APIs into a single listChanges function that
@@ -141,57 +126,23 @@ remove path app =
 
 map : (Value -> Result String a) -> (a -> Value) -> String -> (Maybe a -> Maybe a) -> App -> Task Error (Maybe a)
 map decode encode path func app =
-    Native.Firebase.map app path (mapValue decode encode func)
+    Native.Firebase.map app path (Json.Extra.mapMaybe decode encode func)
         |> Task.map Snapshot.toValue
-        |> Task.andThen
-            (\value ->
-                case value of
-                    Just value ->
-                        value
-                            |> decode
-                            |> Result.mapError UnexpectedValue
-                            |> Result.map Just
-                            |> resultToTask
-
-                    Nothing ->
-                        Task.succeed Nothing
-            )
-
-
-mapValue : (Value -> Result String a) -> (a -> Value) -> (Maybe a -> Maybe a) -> Maybe Value -> Result String (Maybe Value)
-mapValue decode encode func value =
-    case value of
-        Just value ->
-            decode value
-                |> Result.map (Just >> func >> Maybe.map encode)
-
-        Nothing ->
-            Nothing |> func |> Maybe.map encode |> Ok
+        |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
 
 
 get : (Value -> Result String a) -> String -> App -> Task Error (Maybe a)
 get decode path app =
     Native.Firebase.get app path Nothing
         |> Task.map Snapshot.toValue
-        |> Task.andThen
-            (\value ->
-                case value of
-                    Just value ->
-                        value
-                            |> decode
-                            |> Result.mapError UnexpectedValue
-                            |> Result.map Just
-                            |> resultToTask
-
-                    Nothing ->
-                        Task.succeed Nothing
-            )
+        |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
 
 
 getList : (String -> Value -> Result String a) -> String -> Query -> App -> Task Error (List a)
 getList decode path query app =
     Native.Firebase.get app path (Just query)
-        |> Task.andThen (Snapshot.toKeyValueList >> (List.map (\( key, value ) -> decode key value)) >> Result.Extra.combine >> Result.mapError UnexpectedValue >> resultToTask)
+        |> Task.map (Snapshot.toKeyValueList >> (List.map (\( key, value ) -> decode key value)) >> Result.Extra.combine >> Result.mapError UnexpectedValue)
+        |> Task.andThen Task.Extra.fromResult
 
 
 value : App -> String -> (Maybe Value -> msg) -> Sub msg
