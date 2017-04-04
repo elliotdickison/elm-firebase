@@ -15,10 +15,9 @@ effect module Firebase.Database
 
 import Firebase exposing (App)
 import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
+import Firebase.Database.Utils as Utils
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
-import Json.Extra
-import Result.Extra
 import Task.Extra
 
 
@@ -126,7 +125,7 @@ remove path app =
 
 map : (Value -> Result String a) -> (a -> Value) -> String -> (Maybe a -> Maybe a) -> App -> Task Error (Maybe a)
 map decode encode path func app =
-    Native.Firebase.map app path (Json.Extra.mapMaybe decode encode func)
+    Native.Firebase.map app path (Utils.mapValue decode encode func)
         |> Task.map Snapshot.toValue
         |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
 
@@ -141,17 +140,17 @@ get decode path app =
 getList : (String -> Value -> Result String a) -> String -> Query -> App -> Task Error (List a)
 getList decode path query app =
     Native.Firebase.get app path (Just query)
-        |> Task.map (Snapshot.toKeyValueList >> (List.map (\( key, value ) -> decode key value)) >> Result.Extra.combine >> Result.mapError UnexpectedValue)
+        |> Task.map (Snapshot.toKeyValueList >> Utils.decodeKeyValueList decode >> Result.mapError UnexpectedValue)
         |> Task.andThen Task.Extra.fromResult
 
 
-value : App -> String -> (Maybe Value -> msg) -> Sub msg
-value app path toMsg =
+value : String -> App -> (Maybe Value -> msg) -> Sub msg
+value path app toMsg =
     subscription (ValueSub ( app, path, Nothing, Change ) toMsg)
 
 
-list : App -> String -> Query -> (List ( String, Value ) -> msg) -> Sub msg
-list app path query toMsg =
+list : String -> Query -> App -> (List ( String, Value ) -> msg) -> Sub msg
+list path query app toMsg =
     subscription (ListSub ( app, path, Just query, Change ) toMsg)
 
 
@@ -195,8 +194,8 @@ diffSubSignatures a b =
         b
 
 
-listen : Platform.Router msg Msg -> SubSignature -> Task Never ()
-listen router signature =
+startListening : Platform.Router msg Msg -> SubSignature -> Task Never ()
+startListening router signature =
     let
         handler snapshot prevKey =
             Platform.sendToSelf router (SubResponse signature snapshot prevKey)
@@ -293,7 +292,7 @@ onEffects router subs state =
 
         startListeners =
             diffSubSignatures signatures nextSignatures
-                |> List.map (listen router)
+                |> List.map (startListening router)
                 |> Task.sequence
     in
         stopListeners
