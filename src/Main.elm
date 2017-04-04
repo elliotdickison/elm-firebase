@@ -28,7 +28,6 @@ type alias Model =
 type Msg
     = RequestUsers
     | UsersRequestCompleted (Result Database.Error (List User))
-    | UsersChanged (List ( String, Value ))
 
 
 firebase : Firebase.App
@@ -92,10 +91,7 @@ update msg model =
                 Err error ->
                     { model | error = Just (toString error), users = [] } ! []
 
-        UsersChanged list ->
-            { model | error = Nothing, users = list |> List.map (\( key, value ) -> User key (toString value)) } ! []
-
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch [ Database.list "users" (OrderByValue NoFilter NoLimit) firebase UsersChanged ]
+    Database.listChanges decodeUser "users" (OrderByValue NoFilter NoLimit) firebase UsersRequestCompleted

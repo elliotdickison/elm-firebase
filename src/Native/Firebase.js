@@ -104,15 +104,15 @@ var _elliotdickison$elm_firebase$Native_Firebase = (function() {
 
   function mapEventIn(event) {
     switch(event.ctor) {
-    case "Change":
+    case "ValueChanged":
       return "value"
-    case "ChildAdd":
+    case "ChildAdded":
       return "child_added"
-    case "ChildChange":
+    case "ChildChanged":
       return "child_changed"
-    case "ChildRemove":
+    case "ChildRemoved":
       return "child_removed"
-    case "ChildMove":
+    case "ChildMoved":
       return "child_moved"
     }
   }

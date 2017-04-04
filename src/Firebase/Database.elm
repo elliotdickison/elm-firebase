@@ -9,48 +9,25 @@ effect module Firebase.Database
         , set
         , get
         , getList
-        , value
-        , list
+        , changes
+        , listChanges
+        , listItemAdditions
+        , listItemChanges
+        , listItemMoves
+        , listItemRemovals
         )
 
 import Firebase exposing (App)
 import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
-import Firebase.Database.Utils as Utils
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
 import Task.Extra
+import Result.Extra
 
 
--- TODO: Consider including encoders/decoders in the API to simplify boilerplate
--- on the user end. Also, use the Encoder/Decoder types
 -- TODO: wrap up the list APIs into a single listChanges function that
 -- implements the listItem functions under the hood (which basically creates a
 -- streaming API w/ much better performance)
--- set : App -> String -> (Result Error () -> msg) -> Value -> Cmd msg
--- map : App -> String -> (Result Error (Maybe Value) -> msg) -> (Maybe Value -> Maybe Value) -> Cmd msg
--- merge : App -> String -> (Result Error Value -> msg) -> Value -> Cmd msg
--- remove : App -> String -> (Result Error () -> msg) -> Cmd msg
--- push : App -> String -> (Result Error Key -> msg) -> Maybe Value -> Cmd msg
--- get : App -> String -> (Result Error (Maybe Value) -> msg) -> Cmd msg
--- getList : App -> String -> (Result Error (List (String, Value)) -> msg) -> Query -> Cmd msg
--- value : App -> String -> (Value -> msg) -> Sub msg
--- list : App -> String -> (List (String, Value) -> msg) -> Query -> Sub msg
--- stream : App -> String -> (List (String, Value) -> msg) -> Query -> Sub msg
--- listItemChanges : App -> String -> ((String, Value) -> Maybe Key -> msg) -> Query -> Sub msg
--- listItemAdditions : App -> String -> ((String, Value) -> Maybe Key -> msg) -> Query -> Sub msg
--- listItemMoves : App -> String -> ((String, Value) -> Maybe Key -> msg) -> Query -> Sub msg
--- listItemRemovals : App -> String -> ((String, Value) -> msg) -> Query -> Sub msg
-
-
-type Event
-    = Change
-    | ChildAdd
-    | ChildChange
-    | ChildRemove
-    | ChildMove
-
-
-
 -- TODO: Replace "OtherError" w/ actual possible errors
 
 
@@ -80,6 +57,14 @@ type QueryLimit
     | Last Int
 
 
+type Event
+    = ValueChanged
+    | ChildAdded
+    | ChildChanged
+    | ChildRemoved
+    | ChildMoved
+
+
 type alias SubSignature =
     ( App, String, Maybe Query, Event )
 
@@ -103,11 +88,6 @@ type Msg
 -- API
 
 
-attempt : App -> (Result x a -> msg) -> (App -> Task x a) -> Cmd msg
-attempt app toMsg toTask =
-    Task.attempt toMsg (toTask app)
-
-
 set : String -> Value -> App -> Task Error ()
 set path value app =
     Native.Firebase.set app path value
@@ -123,9 +103,15 @@ remove path app =
     Native.Firebase.remove app path
 
 
-map : (Value -> Result String a) -> (a -> Value) -> String -> (Maybe a -> Maybe a) -> App -> Task Error (Maybe a)
+map :
+    (Value -> Result String a)
+    -> (a -> Value)
+    -> String
+    -> (Maybe a -> Maybe a)
+    -> App
+    -> Task Error (Maybe a)
 map decode encode path func app =
-    Native.Firebase.map app path (Utils.mapValue decode encode func)
+    Native.Firebase.map app path (mapValue decode encode func)
         |> Task.map Snapshot.toValue
         |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
 
@@ -137,25 +123,144 @@ get decode path app =
         |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
 
 
-getList : (String -> Value -> Result String a) -> String -> Query -> App -> Task Error (List a)
+getList :
+    (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> Task Error (List a)
 getList decode path query app =
     Native.Firebase.get app path (Just query)
-        |> Task.map (Snapshot.toKeyValueList >> Utils.decodeKeyValueList decode >> Result.mapError UnexpectedValue)
+        |> Task.map (Snapshot.toKeyValueList >> decodeKeyValueList decode)
         |> Task.andThen Task.Extra.fromResult
 
 
-value : String -> App -> (Maybe Value -> msg) -> Sub msg
-value path app toMsg =
-    subscription (ValueSub ( app, path, Nothing, Change ) toMsg)
+attempt : App -> (Result x a -> msg) -> (App -> Task x a) -> Cmd msg
+attempt app toMsg toTask =
+    Task.attempt toMsg (toTask app)
 
 
-list : String -> Query -> App -> (List ( String, Value ) -> msg) -> Sub msg
-list path query app toMsg =
-    subscription (ListSub ( app, path, Just query, Change ) toMsg)
+changes : String -> App -> (Maybe Value -> msg) -> Sub msg
+changes path app toMsg =
+    ValueSub ( app, path, Nothing, ValueChanged ) toMsg
+        |> subscription
+
+
+listChanges :
+    (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> (Result Error (List a) -> msg)
+    -> Sub msg
+listChanges decode path query app toMsg =
+    ListSub ( app, path, Just query, ValueChanged ) (decodeKeyValueList decode >> toMsg)
+        |> subscription
+
+
+listItemAdditions :
+    (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> (Result Error ( a, Maybe String ) -> msg)
+    -> Sub msg
+listItemAdditions =
+    listItemSub ChildAdded
+
+
+listItemChanges :
+    (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> (Result Error ( a, Maybe String ) -> msg)
+    -> Sub msg
+listItemChanges =
+    listItemSub ChildChanged
+
+
+listItemMoves :
+    (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> (Result Error ( a, Maybe String ) -> msg)
+    -> Sub msg
+listItemMoves =
+    listItemSub ChildMoved
+
+
+listItemRemovals :
+    (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> (Result Error a -> msg)
+    -> Sub msg
+listItemRemovals decode path query app toMsg =
+    ListItemSub ( app, path, Just query, ChildRemoved ) (decodeKeyValue decode >> toMsg)
+        |> subscription
 
 
 
 -- HELPERS
+
+
+listItemSub :
+    Event
+    -> (String -> Value -> Result String a)
+    -> String
+    -> Query
+    -> App
+    -> (Result Error ( a, Maybe String ) -> msg)
+    -> Sub msg
+listItemSub event decode path query app toMsg =
+    let
+        toDecodedMsg keyValue prevKey =
+            keyValue
+                |> decodeKeyValue decode
+                |> Result.map (\value -> ( value, prevKey ))
+                |> toMsg
+    in
+        ListItemAndPrevKeySub ( app, path, Just query, event ) toDecodedMsg
+            |> subscription
+
+
+decodeKeyValue :
+    (String -> Value -> Result String a)
+    -> ( String, Value )
+    -> Result Error a
+decodeKeyValue decode ( key, value ) =
+    decode key value
+        |> Result.mapError UnexpectedValue
+
+
+decodeKeyValueList :
+    (String -> Value -> Result String a)
+    -> List ( String, Value )
+    -> Result Error (List a)
+decodeKeyValueList decode list =
+    list
+        |> List.map (decodeKeyValue decode)
+        |> Result.Extra.combine
+
+
+mapValue :
+    (Value -> Result String a)
+    -> (a -> Value)
+    -> (Maybe a -> Maybe a)
+    -> Maybe Value
+    -> Result Error (Maybe Value)
+mapValue decode encode func value =
+    case value of
+        Just value ->
+            decode value
+                |> Result.map (Just >> func >> Maybe.map encode)
+                |> Result.mapError UnexpectedValue
+
+        Nothing ->
+            Nothing |> func |> Maybe.map encode |> Ok
 
 
 getSubSignature : MySub msg -> SubSignature
