@@ -113,14 +113,16 @@ map :
 map decode encode path func app =
     Native.Firebase.map app path (mapValue decode encode func)
         |> Task.map Snapshot.toValue
-        |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
+        |> Task.Extra.andThenDecodeMaybe decode
+        |> Task.mapError UnexpectedValue
 
 
 get : (Value -> Result String a) -> String -> App -> Task Error (Maybe a)
 get decode path app =
     Native.Firebase.get app path Nothing
         |> Task.map Snapshot.toValue
-        |> Task.Extra.andThenDecodeMaybe (decode >> Result.mapError UnexpectedValue)
+        |> Task.Extra.andThenDecodeMaybe decode
+        |> Task.mapError UnexpectedValue
 
 
 getList :
@@ -166,7 +168,7 @@ listItemAdditions :
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
 listItemAdditions =
-    listItemSub ChildAdded
+    listItemAndPrevKeySub ChildAdded
 
 
 listItemChanges :
@@ -177,7 +179,7 @@ listItemChanges :
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
 listItemChanges =
-    listItemSub ChildChanged
+    listItemAndPrevKeySub ChildChanged
 
 
 listItemMoves :
@@ -188,7 +190,7 @@ listItemMoves :
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
 listItemMoves =
-    listItemSub ChildMoved
+    listItemAndPrevKeySub ChildMoved
 
 
 listItemRemovals :
@@ -207,7 +209,7 @@ listItemRemovals decode path query app toMsg =
 -- HELPERS
 
 
-listItemSub :
+listItemAndPrevKeySub :
     Event
     -> (String -> Value -> Result String a)
     -> String
@@ -215,7 +217,7 @@ listItemSub :
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
-listItemSub event decode path query app toMsg =
+listItemAndPrevKeySub event decode path query app toMsg =
     let
         toDecodedMsg keyValue prevKey =
             keyValue
@@ -374,7 +376,7 @@ subMap f sub =
             ListItemSub signature (toMsg >> f)
 
         ListItemAndPrevKeySub signature toMsg ->
-            ListItemAndPrevKeySub signature (\c -> toMsg c >> f)
+            ListItemAndPrevKeySub signature (\a -> toMsg a >> f)
 
 
 onEffects :
