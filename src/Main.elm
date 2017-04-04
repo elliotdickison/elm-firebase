@@ -79,7 +79,7 @@ update msg model =
     case msg of
         RequestUsers ->
             model
-                ! [ Database.getList decodeUser "users" (OrderByValue NoFilter NoLimit)
+                ! [ Database.getList "users" (OrderByValue NoFilter NoLimit) decodeUser
                         |> Database.attempt firebase UsersRequestCompleted
                   ]
 
@@ -94,4 +94,4 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Database.listChanges decodeUser "users" (OrderByValue NoFilter NoLimit) firebase UsersRequestCompleted
+    Database.listChanges "users" (OrderByValue NoFilter NoLimit) decodeUser firebase UsersRequestCompleted

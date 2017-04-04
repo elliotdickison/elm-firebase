@@ -7,6 +7,9 @@ effect module Firebase.Database
         , QueryLimit(..)
         , attempt
         , set
+        , push
+        , remove
+        , map
         , get
         , getList
         , changes
@@ -19,10 +22,10 @@ effect module Firebase.Database
 
 import Firebase exposing (App)
 import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
+import Firebase.Database.Decode as Decode
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
-import Task.Extra
-import Result.Extra
+import Task.Extra exposing ((&>))
 
 
 -- TODO: wrap up the list APIs into a single listChanges function that
@@ -72,8 +75,8 @@ type alias SubSignature =
 type MySub msg
     = ValueSub SubSignature (Maybe Value -> msg)
     | ListSub SubSignature (List ( String, Value ) -> msg)
-    | ListItemSub SubSignature (( String, Value ) -> msg)
-    | ListItemAndPrevKeySub SubSignature (( String, Value ) -> Maybe String -> msg)
+    | ChildSub SubSignature (( String, Value ) -> msg)
+    | ChildAndPrevKeySub SubSignature (( String, Value ) -> Maybe String -> msg)
 
 
 type alias State msg =
@@ -104,21 +107,22 @@ remove path app =
 
 
 map :
-    (Value -> Result String a)
-    -> (a -> Value)
-    -> String
+    String
     -> (Maybe a -> Maybe a)
+    -> (Value -> Result String a)
+    -> (a -> Value)
     -> App
     -> Task Error (Maybe a)
-map decode encode path func app =
-    Native.Firebase.map app path (mapValue decode encode func)
+map path func decode encode app =
+    (Decode.value decode >> Result.map (func >> (Maybe.map encode)))
+        |> Native.Firebase.map app path
         |> Task.map Snapshot.toValue
         |> Task.Extra.andThenDecodeMaybe decode
         |> Task.mapError UnexpectedValue
 
 
-get : (Value -> Result String a) -> String -> App -> Task Error (Maybe a)
-get decode path app =
+get : String -> (Value -> Result String a) -> App -> Task Error (Maybe a)
+get path decode app =
     Native.Firebase.get app path Nothing
         |> Task.map Snapshot.toValue
         |> Task.Extra.andThenDecodeMaybe decode
@@ -126,15 +130,16 @@ get decode path app =
 
 
 getList :
-    (String -> Value -> Result String a)
-    -> String
+    String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> Task Error (List a)
-getList decode path query app =
+getList path query decode app =
     Native.Firebase.get app path (Just query)
-        |> Task.map (Snapshot.toKeyValueList >> decodeKeyValueList decode)
+        |> Task.map (Snapshot.toKeyValueList >> Decode.keyValueList decode)
         |> Task.andThen Task.Extra.fromResult
+        |> Task.mapError UnexpectedValue
 
 
 attempt : App -> (Result x a -> msg) -> (App -> Task x a) -> Cmd msg
@@ -142,66 +147,77 @@ attempt app toMsg toTask =
     Task.attempt toMsg (toTask app)
 
 
-changes : String -> App -> (Maybe Value -> msg) -> Sub msg
-changes path app toMsg =
-    ValueSub ( app, path, Nothing, ValueChanged ) toMsg
+changes :
+    String
+    -> (Value -> Result String a)
+    -> App
+    -> (Result Error (Maybe a) -> msg)
+    -> Sub msg
+changes path decode app toMsg =
+    ValueSub
+        ( app, path, Nothing, ValueChanged )
+        (Decode.value decode >> Result.mapError UnexpectedValue >> toMsg)
         |> subscription
 
 
 listChanges :
-    (String -> Value -> Result String a)
-    -> String
+    String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> (Result Error (List a) -> msg)
     -> Sub msg
-listChanges decode path query app toMsg =
-    ListSub ( app, path, Just query, ValueChanged ) (decodeKeyValueList decode >> toMsg)
+listChanges path query decode app toMsg =
+    ListSub
+        ( app, path, Just query, ValueChanged )
+        (Decode.keyValueList decode >> Result.mapError UnexpectedValue >> toMsg)
         |> subscription
 
 
 listItemAdditions :
-    (String -> Value -> Result String a)
-    -> String
+    String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
 listItemAdditions =
-    listItemAndPrevKeySub ChildAdded
+    childAndPrevKeySub ChildAdded
 
 
 listItemChanges :
-    (String -> Value -> Result String a)
-    -> String
+    String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
 listItemChanges =
-    listItemAndPrevKeySub ChildChanged
+    childAndPrevKeySub ChildChanged
 
 
 listItemMoves :
-    (String -> Value -> Result String a)
-    -> String
+    String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
 listItemMoves =
-    listItemAndPrevKeySub ChildMoved
+    childAndPrevKeySub ChildMoved
 
 
 listItemRemovals :
-    (String -> Value -> Result String a)
-    -> String
+    String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> (Result Error a -> msg)
     -> Sub msg
-listItemRemovals decode path query app toMsg =
-    ListItemSub ( app, path, Just query, ChildRemoved ) (decodeKeyValue decode >> toMsg)
+listItemRemovals path query decode app toMsg =
+    ChildSub
+        ( app, path, Just query, ChildRemoved )
+        (Decode.keyValue decode >> Result.mapError UnexpectedValue >> toMsg)
         |> subscription
 
 
@@ -209,60 +225,25 @@ listItemRemovals decode path query app toMsg =
 -- HELPERS
 
 
-listItemAndPrevKeySub :
+childAndPrevKeySub :
     Event
-    -> (String -> Value -> Result String a)
     -> String
     -> Query
+    -> (String -> Value -> Result String a)
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
-listItemAndPrevKeySub event decode path query app toMsg =
+childAndPrevKeySub event path query decode app toMsg =
     let
         toDecodedMsg keyValue prevKey =
             keyValue
-                |> decodeKeyValue decode
+                |> Decode.keyValue decode
                 |> Result.map (\value -> ( value, prevKey ))
+                |> Result.mapError UnexpectedValue
                 |> toMsg
     in
-        ListItemAndPrevKeySub ( app, path, Just query, event ) toDecodedMsg
+        ChildAndPrevKeySub ( app, path, Just query, event ) toDecodedMsg
             |> subscription
-
-
-decodeKeyValue :
-    (String -> Value -> Result String a)
-    -> ( String, Value )
-    -> Result Error a
-decodeKeyValue decode ( key, value ) =
-    decode key value
-        |> Result.mapError UnexpectedValue
-
-
-decodeKeyValueList :
-    (String -> Value -> Result String a)
-    -> List ( String, Value )
-    -> Result Error (List a)
-decodeKeyValueList decode list =
-    list
-        |> List.map (decodeKeyValue decode)
-        |> Result.Extra.combine
-
-
-mapValue :
-    (Value -> Result String a)
-    -> (a -> Value)
-    -> (Maybe a -> Maybe a)
-    -> Maybe Value
-    -> Result Error (Maybe Value)
-mapValue decode encode func value =
-    case value of
-        Just value ->
-            decode value
-                |> Result.map (Just >> func >> Maybe.map encode)
-                |> Result.mapError UnexpectedValue
-
-        Nothing ->
-            Nothing |> func |> Maybe.map encode |> Ok
 
 
 getSubSignature : MySub msg -> SubSignature
@@ -274,10 +255,10 @@ getSubSignature sub =
         ListSub signature _ ->
             signature
 
-        ListItemSub signature _ ->
+        ChildSub signature _ ->
             signature
 
-        ListItemAndPrevKeySub signature _ ->
+        ChildAndPrevKeySub signature _ ->
             signature
 
 
@@ -327,23 +308,26 @@ handleSub :
 handleSub router snapshot prevKey sub =
     case sub of
         ValueSub _ toMsg ->
-            Platform.sendToApp router (snapshot |> Snapshot.toValue |> toMsg)
+            snapshot |> Snapshot.toValue |> toMsg |> Platform.sendToApp router
 
         ListSub _ toMsg ->
-            Platform.sendToApp router (snapshot |> Snapshot.toKeyValueList |> toMsg)
+            snapshot
+                |> Snapshot.toKeyValueList
+                |> toMsg
+                |> Platform.sendToApp router
 
-        ListItemSub _ toMsg ->
+        ChildSub _ toMsg ->
             case Snapshot.toKeyValue snapshot of
                 Just keyValue ->
-                    Platform.sendToApp router (toMsg keyValue)
+                    keyValue |> toMsg |> Platform.sendToApp router
 
                 Nothing ->
                     Task.succeed ()
 
-        ListItemAndPrevKeySub _ toMsg ->
+        ChildAndPrevKeySub _ toMsg ->
             case Snapshot.toKeyValue snapshot of
                 Just keyValue ->
-                    Platform.sendToApp router (toMsg keyValue prevKey)
+                    toMsg keyValue prevKey |> Platform.sendToApp router
 
                 Nothing ->
                     Task.succeed ()
@@ -351,11 +335,6 @@ handleSub router snapshot prevKey sub =
 
 
 -- EFFECT MANAGER
-
-
-(&>) : Task x a -> Task x b -> Task x b
-(&>) t1 t2 =
-    Task.andThen (\_ -> t2) t1
 
 
 init : Task Never (State msg)
@@ -372,11 +351,11 @@ subMap f sub =
         ListSub signature toMsg ->
             ListSub signature (toMsg >> f)
 
-        ListItemSub signature toMsg ->
-            ListItemSub signature (toMsg >> f)
+        ChildSub signature toMsg ->
+            ChildSub signature (toMsg >> f)
 
-        ListItemAndPrevKeySub signature toMsg ->
-            ListItemAndPrevKeySub signature (\a -> toMsg a >> f)
+        ChildAndPrevKeySub signature toMsg ->
+            ChildAndPrevKeySub signature (\a -> toMsg a >> f)
 
 
 onEffects :
