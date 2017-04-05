@@ -154,10 +154,10 @@ changes :
     -> (Result Error (Maybe a) -> msg)
     -> Sub msg
 changes path decode app toMsg =
-    ValueSub
-        ( app, path, Nothing, ValueChanged )
-        (Decode.value decode >> Result.mapError UnexpectedValue >> toMsg)
-        |> subscription
+    subscription <|
+        ValueSub
+            ( app, path, Nothing, ValueChanged )
+            (Decode.value decode >> Result.mapError UnexpectedValue >> toMsg)
 
 
 listChanges :
@@ -168,10 +168,10 @@ listChanges :
     -> (Result Error (List a) -> msg)
     -> Sub msg
 listChanges path query decode app toMsg =
-    ListSub
-        ( app, path, Just query, ValueChanged )
-        (Decode.keyValueList decode >> Result.mapError UnexpectedValue >> toMsg)
-        |> subscription
+    subscription <|
+        ListSub
+            ( app, path, Just query, ValueChanged )
+            (Decode.keyValueList decode >> Result.mapError UnexpectedValue >> toMsg)
 
 
 listItemAdditions :
@@ -215,10 +215,10 @@ listItemRemovals :
     -> (Result Error a -> msg)
     -> Sub msg
 listItemRemovals path query decode app toMsg =
-    ChildSub
-        ( app, path, Just query, ChildRemoved )
-        (Decode.keyValue decode >> Result.mapError UnexpectedValue >> toMsg)
-        |> subscription
+    subscription <|
+        ChildSub
+            ( app, path, Just query, ChildRemoved )
+            (Decode.keyValue decode >> Result.mapError UnexpectedValue >> toMsg)
 
 
 
@@ -242,8 +242,8 @@ childAndPrevKeySub event path query decode app toMsg =
                 |> Result.mapError UnexpectedValue
                 |> toMsg
     in
-        ChildAndPrevKeySub ( app, path, Just query, event ) toDecodedMsg
-            |> subscription
+        subscription <|
+            ChildAndPrevKeySub ( app, path, Just query, event ) toDecodedMsg
 
 
 getSubSignature : MySub msg -> SubSignature
