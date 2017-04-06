@@ -8,8 +8,8 @@ import Firebase
 import Firebase.Database as Database
     exposing
         ( Query(..)
-        , QueryFilter(..)
-        , QueryLimit(..)
+        , Filter(..)
+        , Limit(..)
         )
 
 

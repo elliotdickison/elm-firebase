@@ -3,13 +3,13 @@ effect module Firebase.Database
     exposing
         ( Error(..)
         , Query(..)
-        , QueryFilter(..)
-        , QueryLimit(..)
+        , Filter(..)
+        , Limit(..)
         , attempt
         , set
         , push
         , remove
-        , map
+        , update
         , get
         , getList
         , changes
@@ -42,12 +42,12 @@ type Error
 
 
 type Query
-    = OrderByKey QueryFilter QueryLimit
-    | OrderByValue QueryFilter QueryLimit
-    | OrderByChild String QueryFilter QueryLimit
+    = OrderByKey Filter Limit
+    | OrderByValue Filter Limit
+    | OrderByChild String Filter Limit
 
 
-type QueryFilter
+type Filter
     = NoFilter
     | Matching Value
     | StartingAt Value
@@ -55,7 +55,7 @@ type QueryFilter
     | Between Value Value
 
 
-type QueryLimit
+type Limit
     = NoLimit
     | First Int
     | Last Int
@@ -107,14 +107,14 @@ remove path app =
     Native.Firebase.Database.remove app path
 
 
-map :
+update :
     String
     -> (Maybe a -> Maybe a)
     -> (Value -> Result String a)
     -> (a -> Value)
     -> App
     -> Task Error (Maybe a)
-map path func decode encode app =
+update path func decode encode app =
     (Decode.value decode >> Result.map (func >> (Maybe.map encode)))
         |> Native.Firebase.Database.map app path
         |> Task.map Snapshot.toValue
