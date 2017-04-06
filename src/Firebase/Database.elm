@@ -20,12 +20,13 @@ effect module Firebase.Database
         , listItemRemovals
         )
 
+import Native.Firebase.Database
 import Firebase exposing (App)
 import Firebase.Database.Snapshot as Snapshot exposing (Snapshot)
 import Firebase.Database.Decode as Decode
+import Firebase.Utils.Task as TaskUtils exposing ((&>))
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
-import Task.Extra exposing ((&>))
 
 
 -- TODO: wrap up the list APIs into a single listChanges function that
@@ -93,17 +94,17 @@ type Msg
 
 set : String -> Value -> App -> Task Error ()
 set path value app =
-    Native.Firebase.set app path value
+    Native.Firebase.Database.set app path value
 
 
 push : String -> Maybe Value -> App -> Task Error String
 push path value app =
-    Native.Firebase.push app path value
+    Native.Firebase.Database.push app path value
 
 
 remove : String -> App -> Task Error ()
 remove path app =
-    Native.Firebase.remove app path
+    Native.Firebase.Database.remove app path
 
 
 map :
@@ -115,17 +116,17 @@ map :
     -> Task Error (Maybe a)
 map path func decode encode app =
     (Decode.value decode >> Result.map (func >> (Maybe.map encode)))
-        |> Native.Firebase.map app path
+        |> Native.Firebase.Database.map app path
         |> Task.map Snapshot.toValue
-        |> Task.Extra.andThenDecodeMaybe decode
+        |> Decode.andThenDecodeMaybe decode
         |> Task.mapError UnexpectedValue
 
 
 get : String -> (Value -> Result String a) -> App -> Task Error (Maybe a)
 get path decode app =
-    Native.Firebase.get app path Nothing
+    Native.Firebase.Database.get app path Nothing
         |> Task.map Snapshot.toValue
-        |> Task.Extra.andThenDecodeMaybe decode
+        |> Decode.andThenDecodeMaybe decode
         |> Task.mapError UnexpectedValue
 
 
@@ -136,9 +137,9 @@ getList :
     -> App
     -> Task Error (List a)
 getList path query decode app =
-    Native.Firebase.get app path (Just query)
+    Native.Firebase.Database.get app path (Just query)
         |> Task.map (Snapshot.toKeyValueList >> Decode.keyValueList decode)
-        |> Task.andThen Task.Extra.fromResult
+        |> Task.andThen TaskUtils.fromResult
         |> Task.mapError UnexpectedValue
 
 
@@ -291,12 +292,12 @@ startListening router signature =
         ( app, path, query, event ) =
             signature
     in
-        Native.Firebase.listen app path query event handler
+        Native.Firebase.Database.startListening app path query event handler
 
 
 stopListening : SubSignature -> Task Never ()
 stopListening ( app, path, query, event ) =
-    Native.Firebase.stopListening app path query event
+    Native.Firebase.Database.stopListening app path query event
 
 
 handleSub :

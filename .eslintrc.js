@@ -23,6 +23,14 @@ module.exports = {
         ],
     },
     "globals": {
-        "require": true,
+        "firebase": false,
+        "_elm_lang$core$Native_Scheduler": false,
+        "_elm_lang$core$Maybe$Nothing": false,
+        "_elm_lang$core$Maybe$Just": false,
+        "A2": false,
+        "F2": false,
+        "F3": false,
+        "F4": false,
+        "F5": false,
     },
 }
