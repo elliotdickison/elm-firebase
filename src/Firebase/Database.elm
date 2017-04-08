@@ -6,6 +6,7 @@ effect module Firebase.Database
         , Filter(..)
         , Limit(..)
         , attempt
+        , subscribe
         , set
         , push
         , remove
@@ -27,12 +28,6 @@ import Firebase.Database.Decode as Decode
 import Firebase.Utils.Task as TaskUtils exposing ((&>))
 import Task exposing (Task)
 import Json.Encode as Encode exposing (Value)
-
-
--- TODO: wrap up the list APIs into a single listChanges function that
--- implements the listItem functions under the hood (which basically creates a
--- streaming API w/ much better performance)
--- TODO: Replace "OtherError" w/ actual possible errors
 
 
 type Error
@@ -92,6 +87,16 @@ type Msg
 -- API
 
 
+attempt : App -> (Result x a -> msg) -> (App -> Task x a) -> Cmd msg
+attempt app toMsg toTask =
+    Task.attempt toMsg (toTask app)
+
+
+subscribe : App -> (a -> msg) -> (App -> (a -> msg) -> Sub msg) -> Sub msg
+subscribe app toMsg toSub =
+    toSub app toMsg
+
+
 set : String -> Value -> App -> Task Error ()
 set path value app =
     Native.Firebase.Database.set app path value
@@ -141,11 +146,6 @@ getList path query decode app =
         |> Task.map (Snapshot.toKeyValueList >> Decode.keyValueList decode)
         |> Task.andThen TaskUtils.fromResult
         |> Task.mapError UnexpectedValue
-
-
-attempt : App -> (Result x a -> msg) -> (App -> Task x a) -> Cmd msg
-attempt app toMsg toTask =
-    Task.attempt toMsg (toTask app)
 
 
 changes :

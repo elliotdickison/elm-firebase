@@ -94,4 +94,5 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Database.listChanges "users" (OrderByValue NoFilter NoLimit) decodeUser firebase UsersRequestCompleted
+    Database.listChanges "users" (OrderByValue NoFilter NoLimit) decodeUser
+        |> Database.subscribe firebase UsersRequestCompleted

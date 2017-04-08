@@ -1,10 +1,6 @@
 // eslint-disable-next-line no-unused-vars
 var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
 
-  // TODO: Remove try/catch blocks where not necessary...
-  // TODO: Convert firebase permission warnings to errors
-  // TODO: Return errors for misconfigured applications
-
   /**
    * HELPERS
    */
