@@ -130,7 +130,7 @@ var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
     })
   }
 
-  function map(app, path, func) {
+  function update(app, path, func) {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var transactionUpdate = function(value) {
         var nextValue = func(value === null ? _elm_lang$core$Maybe$Nothing : _elm_lang$core$Maybe$Just(value))
@@ -204,7 +204,7 @@ var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
   return {
     set: F3(set),
     push: F3(push),
-    map: F3(map),
+    update: F3(update),
     remove: F2(remove),
     get: F3(get),
     startListening: F5(startListening),

@@ -121,7 +121,7 @@ update :
     -> Task Error (Maybe a)
 update path func decode encode app =
     (Decode.value decode >> Result.map (func >> (Maybe.map encode)))
-        |> Native.Firebase.Database.map app path
+        |> Native.Firebase.Database.update app path
         |> Task.map Snapshot.toValue
         |> Decode.andThenDecodeMaybe decode
         |> Task.mapError UnexpectedValue
@@ -182,8 +182,11 @@ listItemAdditions :
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
-listItemAdditions =
-    childAndPrevKeySub ChildAdded
+listItemAdditions path query decode app toMsg =
+    subscription <|
+        ChildAndPrevKeySub
+            ( app, path, Just query, ChildAdded )
+            (keyValueAndPrevKeyToMsg decode toMsg)
 
 
 listItemChanges :
@@ -193,8 +196,11 @@ listItemChanges :
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
-listItemChanges =
-    childAndPrevKeySub ChildChanged
+listItemChanges path query decode app toMsg =
+    subscription <|
+        ChildAndPrevKeySub
+            ( app, path, Just query, ChildChanged )
+            (keyValueAndPrevKeyToMsg decode toMsg)
 
 
 listItemMoves :
@@ -204,8 +210,11 @@ listItemMoves :
     -> App
     -> (Result Error ( a, Maybe String ) -> msg)
     -> Sub msg
-listItemMoves =
-    childAndPrevKeySub ChildMoved
+listItemMoves path query decode app toMsg =
+    subscription <|
+        ChildAndPrevKeySub
+            ( app, path, Just query, ChildMoved )
+            (keyValueAndPrevKeyToMsg decode toMsg)
 
 
 listItemRemovals :
@@ -226,25 +235,18 @@ listItemRemovals path query decode app toMsg =
 -- HELPERS
 
 
-childAndPrevKeySub :
-    Event
-    -> String
-    -> Query
-    -> (String -> Value -> Result String a)
-    -> App
+keyValueAndPrevKeyToMsg :
+    (String -> Value -> Result String a)
     -> (Result Error ( a, Maybe String ) -> msg)
-    -> Sub msg
-childAndPrevKeySub event path query decode app toMsg =
-    let
-        toDecodedMsg keyValue prevKey =
-            keyValue
-                |> Decode.keyValue decode
-                |> Result.map (\value -> ( value, prevKey ))
-                |> Result.mapError UnexpectedValue
-                |> toMsg
-    in
-        subscription <|
-            ChildAndPrevKeySub ( app, path, Just query, event ) toDecodedMsg
+    -> ( String, Value )
+    -> Maybe String
+    -> msg
+keyValueAndPrevKeyToMsg decode toMsg keyValue prevKey =
+    keyValue
+        |> Decode.keyValue decode
+        |> Result.map (\value -> ( value, prevKey ))
+        |> Result.mapError UnexpectedValue
+        |> toMsg
 
 
 getSubSignature : MySub msg -> SubSignature
