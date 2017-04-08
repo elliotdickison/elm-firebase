@@ -1,4 +1,4 @@
-* Disclaimer: This package contains a lot of native/kernel code. This makes it unsafe, opening up users to the very real possibility of runtime errors and difficult-to-debug situations. Given that, this package cannot be published to package.elm-lang.org (in its current form, anyway). Still, it's something that I wanted personally and it has been fun to work on. I hope that others find it useful in some capacity. *
+_Disclaimer: This package contains a lot of native/kernel code. This makes it unsafe, opening up users to the very real possibility of runtime errors and difficult-to-debug situations. Given that, this package cannot be published to package.elm-lang.org (in its current form, anyway). Still, it's something that I wanted personally and it has been fun to work on. I hope that others find it useful in some capacity._
 
 # Firebase for Elm
 
@@ -64,9 +64,5 @@ Examples exist in the `examples` folder. In the future they should be linked to 
 This API diverges from the original Firebase API in some areas:
 
 - The elm-firebase API does not surface Firebase's `Reference` or `Snapshot` objects. Instead, data paths are specified using plain strings and data is returned as `Json.Encode.Value` structures that are decoded into whatever shape is needed by the user. This simplifies the database API a good deal while only sacrificing a few convenience functions such as `Reference.parent` or `Snapshot.key`.
-- elm-firebase offers separate database APIs for querying non-list data and data that is structured as a list. This reduces ambiguity that exists in the original Firebase API due to:
-  - the fact that query parameters can be applied to any query (despite only being useful for list data)
-  - the implicit dependencies between query parameters (e.g. a filter parameter is only effective after applying a sort)
-  - the implicit dependency between the sort parameter and the function used to access the data (`Snapshot.val` is not sorted, `Snapshot.forEach` is)
-  - the heuristics Firebase uses to determine whether `Snapshot.val` should return an array or an object
-- Database "priorities" are omitted from elm-firebase. This feature exists in Firebase primarily for backwards compatibility, and can be replaced with the `OrderByChild` list query functionality.
+- elm-firebase offers separate database APIs for querying list data and non-list data. This removes the ambiguity that exists in the original Firebase API around querying lists (e.g. the issue where list data can be accessed via the generic `Snapshot.val` method, which does not respect the sort parameter).
+- The database `Priority` feature is omitted from elm-firebase. This feature exists in Firebase primarily for backwards compatibility, and can be replaced with the `OrderByChild` list query functionality.
