@@ -2,12 +2,12 @@ _Disclaimer: This package contains a lot of native/kernel code. This makes it un
 
 # Firebase for Elm
 
-Easy access to the Firebase platform from your Elm app.
+Easy access to the Firebase platform from Elm
 
 ```elm
 
 import Firebase
-import Firebase.Database as Database exposing ( Order(..), Filter(..), Limit(..) )
+import Firebase.Database as Database exposing ( Query(..), Filter(..), Limit(..) )
 import Json.Encode as Encode
 
 -- SETUP AN APP
@@ -25,7 +25,7 @@ firebase =
 -- FETCH DATA
 
 type Msg
-  = UsersLoaded (Result Firebase.Error (List User))
+  = UsersLoaded (Result Database.Error (List User))
 
 type alias User = { ... }
 
