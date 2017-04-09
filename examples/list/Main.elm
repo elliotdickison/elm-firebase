@@ -1,8 +1,8 @@
 module Main exposing (..)
 
-import Html exposing (Html, h1, p, div, text, button, input)
-import Html.Events exposing (onClick, onInput)
-import Html.Attributes exposing (value)
+import Html exposing (Html, h1, p, div, text, button, input, form)
+import Html.Events exposing (onClick, onSubmit, onInput)
+import Html.Attributes exposing (value, type_)
 import Json.Encode as Encode exposing (Value)
 import Json.Decode as Decode
 import Firebase
@@ -14,7 +14,7 @@ import Firebase.Database as Database
         )
 
 
-type alias Todo =
+type alias Item =
     { id : String
     , description : String
     }
@@ -22,17 +22,17 @@ type alias Todo =
 
 type alias Model =
     { error : Maybe Database.Error
-    , todos : List Todo
+    , items : List Item
     , form : String
     }
 
 
 type Msg
-    = TodosUpdated (Result Database.Error (List Todo))
-    | AddTodo
-    | AddTodoComplete (Result Database.Error String)
-    | RemoveTodo String
-    | RemoveTodoComplete (Result Database.Error ())
+    = ItemsUpdated (Result Database.Error (List Item))
+    | AddItem
+    | AddItemComplete (Result Database.Error String)
+    | RemoveItem String
+    | RemoveItemComplete (Result Database.Error ())
     | UpdateForm String
 
 
@@ -68,9 +68,11 @@ view model =
         (List.append
             [ h1 [] [ text "List" ]
             , p [] [ text "This example shows the basics of adding, removing, and fetching list items." ]
-            , div [] (List.map viewTodo model.todos)
-            , input [ value model.form, onInput UpdateForm ] []
-            , button [ onClick AddTodo ] [ text "Add" ]
+            , div [] (List.map viewItem model.items)
+            , form [ onSubmit AddItem ]
+                [ input [ value model.form, onInput UpdateForm ] []
+                , button [ type_ "submit" ] [ text "Add" ]
+                ]
             ]
             (viewError model.error)
         )
@@ -86,48 +88,49 @@ viewError error =
             []
 
 
-viewTodo : Todo -> Html Msg
-viewTodo todo =
+viewItem : Item -> Html Msg
+viewItem todo =
     div []
         [ text todo.description
-        , button [ onClick (RemoveTodo todo.id) ] [ text "Remove" ]
+        , button [ onClick (RemoveItem todo.id) ] [ text "Remove" ]
         ]
 
 
-decodeTodo : String -> Value -> Result String Todo
-decodeTodo id value =
+decodeItem : String -> Value -> Result String Item
+decodeItem id value =
     value
         |> Decode.decodeValue Decode.string
-        |> Result.map (Todo id)
+        |> Result.map (Item id)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        TodosUpdated result ->
+        ItemsUpdated result ->
             case result of
-                Ok todos ->
-                    { model | error = Nothing, todos = todos } ! []
+                Ok items ->
+                    { model | error = Nothing, items = items } ! []
 
                 Err error ->
                     { model | error = Just error } ! []
 
-        AddTodo ->
+        AddItem ->
             { model | form = "" }
-                ! [ Database.push "todos" (model.form |> Encode.string |> Just)
-                        |> Database.attempt firebase AddTodoComplete
+                ! [ Database.push "items" (model.form |> Encode.string |> Just)
+                        |> Database.attempt firebase AddItemComplete
                   ]
 
-        AddTodoComplete _ ->
-            model ! []
-
-        RemoveTodo id ->
+        AddItemComplete _ ->
             model
-                ! [ Database.remove ("todos/" ++ id)
-                        |> Database.attempt firebase RemoveTodoComplete
+                ! []
+
+        RemoveItem id ->
+            model
+                ! [ Database.remove ("items/" ++ id)
+                        |> Database.attempt firebase RemoveItemComplete
                   ]
 
-        RemoveTodoComplete _ ->
+        RemoveItemComplete _ ->
             model ! []
 
         UpdateForm value ->
@@ -136,5 +139,5 @@ update msg model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Database.listChanges "todos" (OrderByKey NoFilter NoLimit) decodeTodo
-        |> Database.subscribe firebase TodosUpdated
+    Database.listChanges "items" (OrderByKey NoFilter NoLimit) decodeItem
+        |> Database.subscribe firebase ItemsUpdated
