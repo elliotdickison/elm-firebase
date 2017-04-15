@@ -39,11 +39,11 @@ type Msg
 firebase : Firebase.App
 firebase =
     Firebase.getApp
-        { apiKey = "AIzaSyC6D2bQwHU61AaGabDTVQ531kyoiZ-aKZo"
-        , authDomain = "elm-firebase.firebaseapp.com"
-        , databaseUrl = "https://elm-firebase.firebaseio.com"
-        , storageBucket = "elm-firebase.appspot.com"
-        , messagingSenderId = "488262915403"
+        { apiKey = ""
+        , authDomain = ""
+        , databaseUrl = ""
+        , storageBucket = ""
+        , messagingSenderId = ""
         }
 
 
@@ -109,7 +109,7 @@ update msg model =
         ItemsUpdated result ->
             case result of
                 Ok items ->
-                    { model | error = Nothing, items = items } ! []
+                    { model | items = items } ! []
 
                 Err error ->
                     { model | error = Just error } ! []
@@ -120,9 +120,13 @@ update msg model =
                         |> Database.attempt firebase AddItemComplete
                   ]
 
-        AddItemComplete _ ->
-            model
-                ! []
+        AddItemComplete result ->
+            case result of
+                Err error ->
+                    { model | error = Just error } ! []
+
+                _ ->
+                    model ! []
 
         RemoveItem id ->
             model
@@ -130,8 +134,13 @@ update msg model =
                         |> Database.attempt firebase RemoveItemComplete
                   ]
 
-        RemoveItemComplete _ ->
-            model ! []
+        RemoveItemComplete result ->
+            case result of
+                Err error ->
+                    { model | error = Just error } ! []
+
+                _ ->
+                    model ! []
 
         UpdateForm value ->
             { model | form = value } ! []

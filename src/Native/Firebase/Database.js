@@ -109,10 +109,17 @@ var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
 
   function push(app, path, maybeValue) {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
+      var value = maybeValue.ctor === "Just" ? maybeValue._0 : undefined
+      var key
+      var onComplete = function(error) {
+        if (error) {
+          callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
+        } else {
+          callback(_elm_lang$core$Native_Scheduler.succeed(key))
+        }
+      }
       try {
-        var value = maybeValue.ctor === "Just" ? maybeValue._0 : undefined
-        var key = getRef(app, path).push(value)
-        callback(_elm_lang$core$Native_Scheduler.succeed(key))
+        key = getRef(app, path).push(value, onComplete)
       } catch (error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
@@ -121,9 +128,15 @@ var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
 
   function remove(app, path) {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
+      var onComplete = function(error) {
+        if (error) {
+          callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
+        } else {
+          callback(_elm_lang$core$Native_Scheduler.succeed())
+        }
+      }
       try {
-        getRef(app, path).remove()
-        callback(_elm_lang$core$Native_Scheduler.succeed())
+        getRef(app, path).remove(onComplete)
       } catch (error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
@@ -163,15 +176,15 @@ var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
 
   function get(app, path, maybeQuery) {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
-      var successCallback = function(snapshot) {
+      var onSuccess = function(snapshot) {
         callback(_elm_lang$core$Native_Scheduler.succeed(snapshot))
       }
-      var failureCallback = function(error) {
+      var onFailure = function(error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
       try {
         getRef(app, path, maybeQuery)
-          .once("value", successCallback, failureCallback)
+          .once("value", onSuccess, onFailure)
       } catch (error) {
         callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
       }
@@ -185,19 +198,29 @@ var _elliotdickison$elm_firebase$Native_Firebase_Database = (function() {
   function startListening(app, path, maybeQuery, event, handler) {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var mappedEvent = mapEventIn(event)
-      getRef(app, path, maybeQuery).on(mappedEvent, function(snapshot, prevKey) {
-        var maybePrevKey = prevKey === null ? _elm_lang$core$Maybe$Nothing : _elm_lang$core$Maybe$Just(prevKey)
-        _elm_lang$core$Native_Scheduler.rawSpawn(A2(handler, snapshot, maybePrevKey))
-      })
-      callback(_elm_lang$core$Native_Scheduler.succeed())
+      try {
+        getRef(app, path, maybeQuery).on(mappedEvent, function(snapshot, prevKey) {
+          var maybePrevKey = prevKey === null
+            ? _elm_lang$core$Maybe$Nothing
+            : _elm_lang$core$Maybe$Just(prevKey)
+          _elm_lang$core$Native_Scheduler.rawSpawn(A2(handler, snapshot, maybePrevKey))
+        })
+        callback(_elm_lang$core$Native_Scheduler.succeed())
+      } catch (error) {
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
+      }
     })
   }
 
   function stopListening(app, path, maybeQuery, event) {
     return _elm_lang$core$Native_Scheduler.nativeBinding(function(callback) {
       var mappedEvent = mapEventIn(event)
-      getRef(app, path, maybeQuery).off(mappedEvent)
-      callback(_elm_lang$core$Native_Scheduler.succeed())
+      try {
+        getRef(app, path, maybeQuery).off(mappedEvent)
+        callback(_elm_lang$core$Native_Scheduler.succeed())
+      } catch (error) {
+        callback(_elm_lang$core$Native_Scheduler.fail(mapErrorOut(error)))
+      }
     })
   }
 

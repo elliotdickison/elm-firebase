@@ -89,19 +89,29 @@ update msg model =
                         |> Database.attempt firebase AddComplete
                   ]
 
-        AddComplete _ ->
-            model ! []
+        AddComplete result ->
+            case result of
+                Err error ->
+                    { model | error = Just error } ! []
+
+                _ ->
+                    model ! []
 
         Reset ->
             model ! [ encodeCounter 0 |> Database.set "counter" |> Database.attempt firebase ResetComplete ]
 
-        ResetComplete _ ->
-            model ! []
+        ResetComplete result ->
+            case result of
+                Err error ->
+                    { model | error = Just error } ! []
+
+                _ ->
+                    model ! []
 
         CounterUpdated result ->
             case result of
                 Ok counter ->
-                    { model | error = Nothing, counter = counter } ! []
+                    { model | counter = counter } ! []
 
                 Err error ->
                     { model | error = Just error, counter = Nothing } ! []

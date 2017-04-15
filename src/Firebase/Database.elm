@@ -80,7 +80,8 @@ type alias State msg =
 
 
 type Msg
-    = SubResponse SubSignature Snapshot (Maybe String)
+    = SubData SubSignature Snapshot (Maybe String)
+    | SubError SubSignature Error
 
 
 
@@ -289,17 +290,19 @@ startListening : Platform.Router msg Msg -> SubSignature -> Task Never ()
 startListening router signature =
     let
         handler snapshot prevKey =
-            Platform.sendToSelf router (SubResponse signature snapshot prevKey)
+            Platform.sendToSelf router (SubData signature snapshot prevKey)
 
         ( app, path, query, event ) =
             signature
     in
         Native.Firebase.Database.startListening app path query event handler
+            |> Task.onError (SubError signature >> Platform.sendToSelf router)
 
 
 stopListening : SubSignature -> Task Never ()
 stopListening ( app, path, query, event ) =
     Native.Firebase.Database.stopListening app path query event
+        |> Task.onError (\_ -> Task.succeed ())
 
 
 handleSub :
@@ -334,6 +337,26 @@ handleSub router snapshot prevKey sub =
 
                 Nothing ->
                     Task.succeed ()
+
+
+handleSubError :
+    Platform.Router msg Msg
+    -> Error
+    -> MySub msg
+    -> Task Never ()
+handleSubError router error sub =
+    case sub of
+        ValueSub _ toMsg ->
+            Err error |> toMsg |> Platform.sendToApp router
+
+        ListSub _ toMsg ->
+            Err error |> toMsg |> Platform.sendToApp router
+
+        ChildSub _ toMsg ->
+            Err error |> toMsg |> Platform.sendToApp router
+
+        ChildAndPrevKeySub _ toMsg ->
+            Err error |> toMsg |> Platform.sendToApp router
 
 
 
@@ -396,9 +419,16 @@ onSelfMsg :
     -> Task Never (State msg)
 onSelfMsg router selfMsg state =
     case selfMsg of
-        SubResponse signature snapshot prevKey ->
+        SubData signature snapshot prevKey ->
             state
                 |> List.filter (getSubSignature >> (==) signature)
                 |> List.map (handleSub router snapshot prevKey)
+                |> Task.sequence
+                |> Task.andThen (\_ -> Task.succeed state)
+
+        SubError signature error ->
+            state
+                |> List.filter (getSubSignature >> (==) signature)
+                |> List.map (handleSubError router error)
                 |> Task.sequence
                 |> Task.andThen (\_ -> Task.succeed state)
